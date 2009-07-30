@@ -40,9 +40,9 @@ class ResourceManagerGUI(object):
                  pipe_cmdresp_read,
                  pipe_uiinfo_update_read,
                  queue_uicmds):
-        self.logger = logging.getLogger("RM.GUI")     
+        self.logger = logging.getLogger("RM.GUI")
         self.logger.debug("initialize ResourceManagerGUI object")
-                 
+
         self.pipe_log_read = pipe_log_read
         self.pipe_cmdresp_read = pipe_cmdresp_read
         self.pipe_uiinfo_update_read = pipe_uiinfo_update_read
@@ -142,6 +142,7 @@ class ResourceManagerGUI(object):
         self.main_loop.event_loop.watch_file(
             self.pipe_uiinfo_update_read,
             self.pipe_uiinfo_update_event)
+        self.logger.debug("run urwid's GUI main loop...")
         self.main_loop.run()
 
     def pipe_log_event(self):
@@ -231,6 +232,7 @@ class ResourceManagerGUI(object):
     def unhandled_input(self, key):
         if key == 'enter':
             instring = self.edit.get_edit_text()
+            self.logger.debug("command entered: %s" % instring)
             self.queue_uicmds.put(instring)
             self.edit.set_edit_text('')
             if instring == 'quit':

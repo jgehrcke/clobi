@@ -46,7 +46,7 @@ class SQSSession(object):
     def __init__(self, initial_session_config, session_save_dir):
         self.logger = logging.getLogger("RM.MainLoop.SQSSession")
         self.logger.debug("initialize SQSSession object")
-        
+
         self.inicfg = initial_session_config
         self.default_visibility_timeout = initial_session_config.sqs.default_visibility_timeout
         self.save_dir = session_save_dir
@@ -169,7 +169,7 @@ class SimpleDBSession(object):
     def __init__(self, initial_session_config, session_save_dir):
         self.logger = logging.getLogger("RM.MainLoop.SimpleDBSession")
         self.logger.debug("initialize SimpleDBSession object")
-        
+
         self.inicfg = initial_session_config
         self.initial_highest_priority = initial_session_config.sqs.initial_highest_priority
         self.save_dir = session_save_dir
@@ -495,7 +495,7 @@ class InitialSessionConfig(object):
         # create logger
         self.logger = logging.getLogger("RM.MainLoop.InitialSessionConfig")
         self.logger.debug("initialize InitialSessionConfig object")
-        
+
         # constructor arguments
         self.logger.debug("check session config file")
         self.session_config_file_abspath = check_file(session_config_file_path)
@@ -718,7 +718,7 @@ class NimbusCloud(object):
                             index 1 is the first one used.
         """
 
-        self.logger = logging.getLogger("RM.MainLoop.NimbusCloud")
+        self.logger = logging.getLogger("RM.MainLoop.NimbusCloud.%s" % nimbus_cloud_index)
         self.logger.debug("initialize NimbusCloud object")
 
         # constructor arguments
@@ -854,10 +854,10 @@ class ResourceManagerLogger:
         # pipe handler to GUI
         # about encoding:
         # http://mail.python.org/pipermail/python-bugs-list/2004-March/022258.html
-        # -> "Notice that UTF-8 is only used if a UnicodeError is detected. 
-        # By default, "%s\n" % msg is written to the stream using the 
-        # stream's write(). If the stream can handle this without raising 
-        # a UnicodeError, then UTF-8 will not be used."        
+        # -> "Notice that UTF-8 is only used if a UnicodeError is detected.
+        # By default, "%s\n" % msg is written to the stream using the
+        # stream's write(). If the stream can handle this without raising
+        # a UnicodeError, then UTF-8 will not be used."
         self.ph = logging.StreamHandler(os.fdopen(pipe_write,'a',0))
         self.ph.setLevel(logging.INFO)
         self.formatter_pipe = logging.Formatter(

@@ -35,7 +35,7 @@ class SafeConfigParserStringZip(ConfigParser.SafeConfigParser):
     def write_to_string(self):
         """
         Write current config to StringIO object, return value
-        
+
         @return: string with current config
         """
         configstring_fd = cStringIO.StringIO()
@@ -51,7 +51,7 @@ class SafeConfigParserStringZip(ConfigParser.SafeConfigParser):
         @return: zipped string with current config
         """
         return zlib.compress(self.write_to_string())
-        
+
     def read_from_string(self, string):
         """
         Update current config from string content
@@ -62,9 +62,9 @@ class SafeConfigParserStringZip(ConfigParser.SafeConfigParser):
         configstring_fd.seek(0)
         self.readfp(configstring_fd)
         configstring_fd.close()
-        
+
     def read_from_zipped_string(self, zipstring):
         """
         Update current config from zipped string
         """
-        self.read_from_string(zlib.decompress(zipstring))  
+        self.read_from_string(zlib.decompress(zipstring))

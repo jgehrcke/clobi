@@ -88,9 +88,11 @@ def main():
                                                      pipe_uiinfo_update_write,
                                                      queue_uicmds, start_options,
                                                      session_dirs)
+        mainlog.info("start ResourceManagerMainLoop thread...")
         rm_mainloop_thread.start()
         try:
             gui = ResourceManagerGUI(pipe_log_read, pipe_cmdresp_read, pipe_uiinfo_update_read, queue_uicmds)
+            mainlog.info("start ResourceManagerGUI...")
             gui.main()
         except:
             mainlog.critical("GUI ERROR! send ResourceManagerMainLoop thread signal to QUIT..")
@@ -101,8 +103,10 @@ def main():
     finally:
         lock_fd.close()
         os.remove(lockfilepath)
+        mainlog.info("shut down logger...")
+        logging.shutdown()
 
-        
+
 def parseargs():
     """
     Parse commandlineoptions using the optparse module and check them for
@@ -141,3 +145,12 @@ def parseargs():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+

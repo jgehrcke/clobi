@@ -44,7 +44,7 @@ class ResourceManagerMainLoop(threading.Thread):
                  session_dirs):
         self.logger = logging.getLogger("RM.MainLoop")
         self.logger.debug("initialize ResourceManagerMainLoop object")
-        
+
         threading.Thread.__init__(self)
         self.pipe_cmdresp_write = pipe_cmdresp_write
         self.pipe_uiinfo_update_write = pipe_uiinfo_update_write
@@ -55,27 +55,28 @@ class ResourceManagerMainLoop(threading.Thread):
     def run (self):
         start_options = self.start_options
         self.logger.info("thread started.")
-        session = Session(start_options, self.session_dirs)
+        self.session = Session(start_options, self.session_dirs)
         self.logger.info("LOAD INITIAL SESSION CONFIGURATION...")
-        session.load_initial_session_config()
+        self.session.load_initial_session_config()
         self.logger.info("FINISH SESSION SETUP...")
 
         cloudstring = 'Clouds: '
-        if session.inicfg.ec2.use:
+        if self.session.inicfg.ec2.use:
             cloudstring += 'EC2, '
-        for nimbus_cloud in session.nimbus_clouds:
+        for nimbus_cloud in self.session.nimbus_clouds:
             cloudstring += 'Nb%s, ' % nimbus_cloud.cloud_index
         self.request_update_uiinfo(dict(
         txt_cloud=cloudstring.rstrip(", "),
-        txt_name=session.inicfg.session.name))
+        txt_name=self.session.inicfg.session.name))
 
-        #session.finish_setup()
-        #self.main_loop()
+        self.session.finish_setup()
+        self.main_loop()
 
 
 
 
     def main_loop(self):
+        self.logger.debug("main_loop() started.")
         #self.request_update_uiinfo(dict(txt_cloud='BOAH ALDA EY KRASS!'))
         #self.txt_cloud.set_text(self.uiinfo_dict['txt_cloud'])
         #self.txt_sqs_upd.set_text(self.uiinfo_dict['txt_sqs_upd'])
@@ -95,23 +96,25 @@ class ResourceManagerMainLoop(threading.Thread):
                 os.write(self.pipe_cmdresp_write, uicmd.encode('utf-8'))
 
             now = time.time()
-            next_sqs_check_in = abs(min(0, now - (sqs_last_checked + session.inicfg.sqs.monitor_queues_pollinterval)))
-            next_sdb_check_in = abs(min(0, now - (sdb_last_checked + session.inicfg.sdb.monitor_vms_pollinterval)))
+            next_sqs_check_in = abs(min(0, (now -
+                (sqs_last_checked + self.session.inicfg.sqs.monitor_queues_pollinterval))))
+            next_sdb_check_in = abs(min(0, (now -
+                (sdb_last_checked + self.session.inicfg.sdb.monitor_vms_pollinterval))))
             self.request_update_uiinfo(dict(
                 txt_sqs_upd="SQS update: "+str(int(round(next_sqs_check_in))).zfill(5)+" s",
                 txt_sdb_upd="SDB update: "+str(int(round(next_sdb_check_in))).zfill(5)+" s"))
 
             if next_sqs_check_in == 0:
-                #check sqs!
+                self.logger.info("SQS monitoring triggered.")
                 sqs_last_checked = time.time()
 
             if next_sdb_check_in == 0:
-                #check sdb!
+                self.logger.info("SDB monitoring triggered.")
                 sdb_last_checked = time.time()
-                
-             #session.run_vm()
-    
-             
+
+             #self.session.run_vm()
+
+
     def request_update_uiinfo(self, update_dict):
         """
         Make ConfigParser Config from update_dict, delimit with %% and && and
