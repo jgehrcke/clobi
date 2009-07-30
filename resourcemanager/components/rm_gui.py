@@ -37,7 +37,7 @@ import urwid.raw_display
 class ResourceManagerGUI(object):
     """
     urwid userinterface.
-    
+
     @params:
     - pipe_log_read:        reading os.pipe() filedescriptor. here, the log
                             messages arrive from ResourceManagerMainLoop thread.
@@ -106,7 +106,7 @@ class ResourceManagerGUI(object):
             txt_sqs_upd='SQS update: YYY s',
             txt_cloud='Clouds: ',
             txt_sqs_jobs='')
-            
+
         self.header_body = urwid.Columns([
             self.hd_pl_cl_1,
             self.hd_pl_cl_2,
@@ -133,7 +133,7 @@ class ResourceManagerGUI(object):
 
     def main(self):
         """
-        Set up urwid screen, color palette und MainLoop, including all 
+        Set up urwid screen, color palette und MainLoop, including all
         filedescriptors to monitor with SelectEventLoop. Then run MainLoop.
         """
         self.screen = urwid.raw_display.Screen()
@@ -193,6 +193,7 @@ class ResourceManagerGUI(object):
         """
         new_data = os.read(self.pipe_cmdresp_read,9999999).decode('UTF-8')
         if len(new_data):
+            self.logger.debug("cmd response: %s" % new_data)
             new_text = urwid.Text(('accepted_command', new_data))
             self.listbox_extend([new_text])
 
@@ -248,7 +249,7 @@ class ResourceManagerGUI(object):
         Extend listbox by `extension` (which must be *list* of urwid widgets).
         Limit overall length of listbox. Scroll automatically down, but only if
         the focus is somewhere at the bottom of the list (tolerance interval
-        of about 20 items away from the bottom). 
+        of about 20 items away from the bottom).
         Draw screen to show changes.
         """
         scroll = True
