@@ -1,7 +1,7 @@
 ﻿# -*- coding: UTF-8 -*-
 #
 #   ::::::::> RESOURCE MANAGER <::::::::
-#   Resource Manager Main
+#   Resource Manager Main (initialization)
 #
 #   by Jan-Philip Gehrcke (jgehrcke@gmail.com)
 #
@@ -39,12 +39,11 @@ from components.rm_gui import ResourceManagerGUI
 def main():
     """
     - parse commandline arguments
-    - get absolute session path (directory) and define/create RM run dir
-    - set up session directories (log, save, ..)
-    - set up logging: stderr -> split -> stderr/file; init logging
-    - set up thread communication components: os.pipe() and Queue.Queue
-    - start urwid GUI
-    - start Resource Manager's main loop
+    - get absolute session path (session.cfg directory)
+    - define/create RM run dir / session directories (log, save, ..)
+    - set up logging: stderr split -> stderr/file; init logging module logger
+    - set up thread communication components: os.pipe()s and Queue.Queue
+    - start urwid GUI and Resource Manager's main loop
     """
     start_options = parseargs()
     sesspath = os.path.dirname(check_file(
@@ -58,8 +57,6 @@ def main():
             os.mkdir(session_run_dir)
 
     # log stderr to a file (not stdout: with urwid, stdout is very noisy :-))
-    # what goes to stderr?
-    # 1) tracebacks 2) logger with streamhandler to stderr; debuglevel=ERROR
     stderr_logfile_path = os.path.join(session_dirs['session_log_dir'],
         time.strftime("%Y%m%d-%H%M%S", time.localtime()) + "_RM_stderr.log")
     stderr_log_fd = open(stderr_logfile_path,'w')
@@ -69,10 +66,11 @@ def main():
     pipe_log_read, pipe_log_write = os.pipe()
     pipe_cmdresp_read, pipe_cmdresp_write = os.pipe()
     pipe_uiinfo_update_read, pipe_uiinfo_update_write = os.pipe()
-    # create root logger
+    # set up logging logger
     rootlog = ResourceManagerLogger(pipe_log_write, session_dirs['session_log_dir'])
     mainlog = logging.getLogger("RM")
 
+    # a quick "dont-run-multiple-instances-in-the-same-session-dir" solution
     lockfilepath = os.path.join(session_run_dir,'RM.LOCKFILE')
     mainlog.debug("check lockfile: "+lockfilepath)
     if os.path.exists(lockfilepath):
@@ -83,22 +81,28 @@ def main():
         mainlog.debug("lockfile did not exist. create: "+lockfilepath)
         lock_fd = open(lockfilepath,'w')
 
+    # here the crucial part begins
     try:
-        rm_mainloop_thread = ResourceManagerMainLoop(pipe_cmdresp_write,
-                                                     pipe_uiinfo_update_write,
-                                                     queue_uicmds, start_options,
-                                                     session_dirs)
+        rm_mainloop_thread = ResourceManagerMainLoop(
+            pipe_cmdresp_write,
+            pipe_uiinfo_update_write,
+            queue_uicmds, start_options,
+            session_dirs)
         mainlog.info("start ResourceManagerMainLoop thread...")
         rm_mainloop_thread.start()
         try:
-            gui = ResourceManagerGUI(pipe_log_read, pipe_cmdresp_read, pipe_uiinfo_update_read, queue_uicmds)
+            gui = ResourceManagerGUI(
+                pipe_log_read,
+                pipe_cmdresp_read,
+                pipe_uiinfo_update_read,
+                queue_uicmds)
             mainlog.info("start ResourceManagerGUI: gui.main()")
             gui.main()
             mainlog.debug("returned from gui.main()")
-        except:
+        except:     # delay exception, at first try to quit the other thread
             mainlog.critical("GUI ERROR! send ResourceManagerMainLoop thread signal to QUIT..")
             queue_uicmds.put("quit")
-            raise
+            raise   # raise exception here
         mainlog.debug("Wait for thread(s) to join..")
         print "Wait for thread(s) to join.."
         rm_mainloop_thread.join()
@@ -106,7 +110,7 @@ def main():
         mainlog.debug("remove lockfile...")
         lock_fd.close()
         os.remove(lockfilepath)
-        mainlog.info("shut down logger...")
+        mainlog.info("shutting down logger...")
         logging.shutdown()
 
 
@@ -117,7 +121,6 @@ def parseargs():
 
     @return: optparse `options`-object containing the commandline options
     """
-    # the following part configures the OptionParser...
     version = '0'
     description = ("Resource Manager")
     usage = ("%prog --start --sessionconfig path/to/config.cfg \n"
@@ -148,12 +151,3 @@ def parseargs():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
