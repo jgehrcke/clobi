@@ -92,15 +92,18 @@ def main():
         rm_mainloop_thread.start()
         try:
             gui = ResourceManagerGUI(pipe_log_read, pipe_cmdresp_read, pipe_uiinfo_update_read, queue_uicmds)
-            mainlog.info("start ResourceManagerGUI...")
+            mainlog.info("start ResourceManagerGUI: gui.main()")
             gui.main()
+            mainlog.debug("returned from gui.main()")
         except:
             mainlog.critical("GUI ERROR! send ResourceManagerMainLoop thread signal to QUIT..")
             queue_uicmds.put("quit")
             raise
-        print "Wait for thread(s) to join."
+        mainlog.debug("Wait for thread(s) to join..")
+        print "Wait for thread(s) to join.."
         rm_mainloop_thread.join()
     finally:
+        mainlog.debug("remove lockfile...")
         lock_fd.close()
         os.remove(lockfilepath)
         mainlog.info("shut down logger...")

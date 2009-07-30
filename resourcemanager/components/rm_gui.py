@@ -108,7 +108,6 @@ class ResourceManagerGUI(object):
         self.edit = urwid.Edit(('editcp',">>> "), wrap='clip')
         self.footer = urwid.AttrWrap(self.edit, 'editbx')
 
-
         self.top = urwid.Frame(
             body=urwid.AttrWrap(self.listbox, 'body'),
             header=self.header,
@@ -200,7 +199,6 @@ class ResourceManagerGUI(object):
                 update_dict[option] = config.get('uiinfo',option).decode('UTF-8')
             self.uiinfo_update(update_dict)
 
-
     def uiinfo_update(self, update_dict={}):
         """
         Update UI information (session / SQS / SDB / VM information) with the
@@ -215,18 +213,23 @@ class ResourceManagerGUI(object):
         self.txt_sqs_upd.set_text(self.uiinfo_dict['txt_sqs_upd'])
         self.txt_sdb_upd.set_text(self.uiinfo_dict['txt_sdb_upd'])
         self.txt_name.set_text(self.uiinfo_dict['txt_name'])
-
         self.main_loop.draw_screen()
 
     def listbox_extend(self, extension):
         """
-        Extend listbox by extension (which must be *list* of urwid widgets).
-        Limit overall length of listbox.
+        Extend listbox by `extension` (which must be *list* of urwid widgets).
+        Limit overall length of listbox. Scroll automatically down, but only if
+        the focus is somewhere at the bottom of the list (tolerance interval
+        of about 20 items away from the bottom). 
         Draw screen to show changes.
         """
+        scroll = True
+        if self.list_walker.get_focus()[1] is not None:
+            if self.list_walker.get_focus()[1]+20 < len(self.list_walker.contents):
+                scroll = False
         self.list_walker.contents.extend(extension)
         del self.list_walker.contents[0:-10000]
-        self.list_walker.set_focus(len(self.list_walker.contents))
+        if scroll: self.list_walker.set_focus(len(self.list_walker.contents))
         self.main_loop.draw_screen()
 
     def unhandled_input(self, key):
@@ -236,6 +239,7 @@ class ResourceManagerGUI(object):
             self.queue_uicmds.put(instring)
             self.edit.set_edit_text('')
             if instring == 'quit':
+                self.logger.debug("raise urwid.ExitMainLoop()")
                 raise urwid.ExitMainLoop()
         if key == 'up' or key == 'down' or key == 'page up' or key == 'page down':
             self.top.set_focus('body')
