@@ -72,9 +72,6 @@ class ResourceManagerMainLoop(threading.Thread):
         self.session.finish_setup()
         self.main_loop()
 
-
-
-
     def main_loop(self):
         self.logger.debug("main_loop() started.")
         #self.request_update_uiinfo(dict(txt_cloud='BOAH ALDA EY KRASS!'))
@@ -108,13 +105,16 @@ class ResourceManagerMainLoop(threading.Thread):
                 self.logger.info("SQS monitoring triggered.")
                 self.session.sqs_session.query_queues()
                 sqs_last_checked = time.time()
+                stringlist = []
+                for prio, jobnr in self.session.sqs_session.queue_jobnbrs_laststate.items():
+                    stringlist.append("P"+str(prio).zfill(2)+": %s job(s)" % jobnr)
+                self.request_update_uiinfo(dict(txt_sqs_jobs="\n".join(stringlist)))
 
             if next_sdb_check_in == 0:
                 self.logger.info("SDB monitoring triggered.")
                 sdb_last_checked = time.time()
 
              #self.session.run_vm()
-
 
     def request_update_uiinfo(self, update_dict):
         """

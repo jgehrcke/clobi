@@ -35,6 +35,20 @@ import urwid.raw_display
 
 
 class ResourceManagerGUI(object):
+    """
+    urwid userinterface.
+    
+    @params:
+    - pipe_log_read:        reading os.pipe() filedescriptor. here, the log
+                            messages arrive from ResourceManagerMainLoop thread.
+                            They are displayed in the body (ListBox) of the UI.
+    - pipe_cmdresp_read:    reading os.pipe() filedescriptor. here, responses
+                            on entered commands arrive (one-line-messages).
+    - pipe_uiinfo_update_read:  reading os.pipe() filedescriptor. here, UI
+                            update information arrives.
+    - queue_uicmds:         Queue.Queue() to communicate user-given commands to
+                            the ResourceManagerMainLoop thread.
+    """
     def __init__(self,
                  pipe_log_read,
                  pipe_cmdresp_read,
@@ -59,12 +73,12 @@ class ResourceManagerGUI(object):
         #               edit in FOOTER
 
         # HEADER
-        self.txt_sdb_upd = urwid.Text('SDB update: 10000 s', align='left', wrap='any')
-        self.txt_sqs_upd = urwid.Text('SQS update: 1 s', align='left', wrap='any')
-        self.txt_cloud = urwid.Text('Clouds: EC2, Nb1, Nb2, Nb3, Nb4, Nb5', align='left')
-        self.txt_name = urwid.Text('Name...', align='left')
+        self.txt_sdb_upd = urwid.Text('', align='left', wrap='any')
+        self.txt_sqs_upd = urwid.Text('', align='left', wrap='any')
+        self.txt_cloud = urwid.Text('', align='left')
+        self.txt_name = urwid.Text('', align='left')
         self.hd_pl_cl_1 = 	urwid.Pile([
-            urwid.Text('SESSION', align='center'),
+            urwid.Text('SESSION INFO', align='center'),
             urwid.Divider("-"),
             self.txt_name,
             self.txt_cloud,
@@ -72,24 +86,27 @@ class ResourceManagerGUI(object):
             self.txt_sdb_upd
             ])
 
+        self.txt_sqs_jobs = urwid.Text('P01: 27 jobs\nP02: 13 jobs', align='left', wrap='any')
         self.hd_pl_cl_2 = 	urwid.Pile([
-            urwid.Text('SQS', align='center'),
+            urwid.Text('SQS DATA', align='center'),
             urwid.Divider("-"),
-            urwid.Text('P01: 0 jobs\nP02: 13 jobs\nP03: 366 jobs', align='left', wrap='any'),
+            self.txt_sqs_jobs,
             ])
 
         self.hd_pl_cl_3 = 	urwid.Pile([
-            urwid.Text('SDB', align='center'),
+            urwid.Text('SDB DATA', align='center'),
             urwid.Divider("-"),
             urwid.Text('started VMs:\n   EC2:12\n   Nb1:1\n   Nb2:13', align='left', wrap='any'),
             urwid.Text('running VMs:\n   EC2:10\n   Nb1:0\n   Nb2:12', align='left', wrap='any'),
             ])
 
         self.uiinfo_dict = dict(
-            txt_name='',
-            txt_sdb_upd='',
-            txt_sqs_upd='',
-            txt_cloud='')
+            txt_name='Name: ',
+            txt_sdb_upd='SDB update: XXX s',
+            txt_sqs_upd='SQS update: YYY s',
+            txt_cloud='Clouds: ',
+            txt_sqs_jobs='')
+            
         self.header_body = urwid.Columns([
             self.hd_pl_cl_1,
             self.hd_pl_cl_2,
@@ -115,6 +132,10 @@ class ResourceManagerGUI(object):
             focus_part='footer')
 
     def main(self):
+        """
+        Set up urwid screen, color palette und MainLoop, including all 
+        filedescriptors to monitor with SelectEventLoop. Then run MainLoop.
+        """
         self.screen = urwid.raw_display.Screen()
         self.screen.set_input_timeouts(max_wait=None)
         self.palette = [
@@ -146,6 +167,8 @@ class ResourceManagerGUI(object):
 
     def pipe_log_event(self):
         """
+        Callback function from urwid.MainLoop. It's called when select.select()
+        returns `self.pipe_log_read`.
         Log data is on the pipe for the UI to display in the ListBox!
         Read from pipe, splitlines and make a Text widget out of each line.
         One write may be returned in more than one read
@@ -163,6 +186,8 @@ class ResourceManagerGUI(object):
 
     def pipe_cmdresp_event(self):
         """
+        Callback function from urwid.MainLoop. It's called when select.select()
+        returns `self.pipe_cmdresp_read`.
         There is a command response in the pipe!
         Read from pipe, assume one-liners and display them as command response
         """
@@ -173,10 +198,12 @@ class ResourceManagerGUI(object):
 
     def pipe_uiinfo_update_event(self):
         """
-        Read from pipe, update UI information. Data comes as "Configfile".
-        Delimiter %% and && to delimit one update data set: %%CSVstring&&
+        Callback function from urwid.MainLoop. It's called when select.select()
+        returns `self.pipe_uiinfo_update_read`.
+        Read from pipe, collect UIupdate data. Data comes as "ConfigParserfile".
+        Delimiter %% and && to delimit one update data set: %%ConfigString&&
         This is because one data string could come chopped:
-                read 1) %%datastringblabla&&%%datastringblubbeginning
+                read 1) %%data\nstring\nblabla&&%%datastring\nblubbeginning
                 read 2) datastringblubending&&
         """
         pipestring = (self.pipe_uiinfo_update_prefix +
@@ -192,7 +219,7 @@ class ResourceManagerGUI(object):
         for dataset in datasets:
             config = SafeConfigParserStringZip()
             config.read_from_string(dataset.encode('UTF-8'))
-            # now assemble update dictionary that can be passed to uiiinfo_update().
+            # now assemble update-dictionary that can be passed to uiiinfo_update().
             # at this point, the section "uiinfo" is hard coded!!
             update_dict = {}
             for option in config.options('uiinfo'):
@@ -201,9 +228,9 @@ class ResourceManagerGUI(object):
 
     def uiinfo_update(self, update_dict={}):
         """
-        Update UI information (session / SQS / SDB / VM information) with the
-        use of a ConfigParser config that was transmitted via pipe from worker
-        thread. Only update the elements that came along
+        Update UI information (session / SQS / SDB / VM information) with
+        information that was transmitted via pipe from ResourceManagerMainLoop
+        thread.
 
         @params: update_dict: dictionary containing data to be updated
         """
@@ -213,6 +240,7 @@ class ResourceManagerGUI(object):
         self.txt_sqs_upd.set_text(self.uiinfo_dict['txt_sqs_upd'])
         self.txt_sdb_upd.set_text(self.uiinfo_dict['txt_sdb_upd'])
         self.txt_name.set_text(self.uiinfo_dict['txt_name'])
+        self.txt_sqs_jobs.set_text(self.uiinfo_dict['txt_sqs_jobs'])
         self.main_loop.draw_screen()
 
     def listbox_extend(self, extension):
@@ -233,6 +261,10 @@ class ResourceManagerGUI(object):
         self.main_loop.draw_screen()
 
     def unhandled_input(self, key):
+        """
+        Callback function which gets called from urwid's MainLoop, when there is
+        user-input left over after all screen control related input processing.
+        """
         if key == 'enter':
             instring = self.edit.get_edit_text()
             self.logger.debug("command entered: %s" % instring)
