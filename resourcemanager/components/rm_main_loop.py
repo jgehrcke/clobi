@@ -106,6 +106,7 @@ class ResourceManagerMainLoop(threading.Thread):
 
             if next_sqs_check_in == 0:
                 self.logger.info("SQS monitoring triggered.")
+                self.session.sqs_session.query_queues()
                 sqs_last_checked = time.time()
 
             if next_sdb_check_in == 0:

@@ -48,7 +48,7 @@ class SQSSession(object):
         self.logger.debug("initialize SQSSession object")
 
         self.inicfg = initial_session_config
-        self.default_visibility_timeout = initial_session_config.sqs.default_visibility_timeout
+        self.default_visibility_timeout = self.inicfg.sqs.default_visibility_timeout
         self.save_dir = session_save_dir
         self.save_config_file_path = os.path.join(self.save_dir,"save.session.sqs.config")
 
@@ -62,6 +62,7 @@ class SQSSession(object):
         self.prefix = None
         self.suffix = "_P"
         self.highest_priority = None
+        self.queue_jobnbrs_laststate = {}
 
     def set_prefix(self, prefix):
         """
@@ -85,6 +86,17 @@ class SQSSession(object):
                        for key, value in self.queues_priorities_names.items()])
         self.logger.info(("generated SQS priority/queuename pairs:\n"
                           + outputstring))
+
+    def query_queues(self):
+        self.logger.debug("get attributes for all SQS queues...")
+        for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
+            attr = queue.get_attributes()
+            jobnbr = attr['ApproximateNumberOfMessages']
+            last_modified = attr['LastModifiedTimestamp']
+            self.queue_jobnbrs_laststate[prio] = jobnbr
+            self.logger.info(("queue for priority %s:\napproximate nbr of jobs: %s"
+                " ; last modified: %s" % (prio, jobnbr, time.strftime("%Y%m%d-%H%M%S",
+                    time.localtime(float(last_modified))))))
 
     def create_queues(self, resume = False):
         """
