@@ -46,6 +46,7 @@ class ResourceManagerGUI(object):
                             on entered commands arrive (one-line-messages).
     - pipe_uiinfo_update_read:  reading os.pipe() filedescriptor. here, UI
                             update information arrives.
+    - pipe_stderr_read:     stderr is -- among others -- written to this pipe
     - queue_uicmds:         Queue.Queue() to communicate user-given commands to
                             the ResourceManagerMainLoop thread.
     """
@@ -53,6 +54,7 @@ class ResourceManagerGUI(object):
                  pipe_log_read,
                  pipe_cmdresp_read,
                  pipe_uiinfo_update_read,
+                 pipe_stderr_read,
                  queue_uicmds):
         self.logger = logging.getLogger("RM.GUI")
         self.logger.debug("initialize ResourceManagerGUI object")
@@ -60,6 +62,7 @@ class ResourceManagerGUI(object):
         self.pipe_log_read = pipe_log_read
         self.pipe_cmdresp_read = pipe_cmdresp_read
         self.pipe_uiinfo_update_read = pipe_uiinfo_update_read
+        self.pipe_stderr_read = pipe_stderr_read
         self.queue_uicmds = queue_uicmds
         self.pipe_uiinfo_update_prefix = ''
         self.pipe_log_prefix = ''
@@ -139,13 +142,14 @@ class ResourceManagerGUI(object):
         self.screen = urwid.raw_display.Screen()
         self.screen.set_input_timeouts(max_wait=None)
         self.palette = [
-            ('body','black','light gray', 'standout'),
-            ('header','white','dark red', 'bold'),
-            ('header_body', 'black', 'light red'),
-            ('editfc','white', 'dark blue', 'bold'),
-            ('editbx','light gray', 'dark blue'),
+            ('body','black','light blue','standout'),
+            ('header','white','dark red','bold'),
+            ('header_body','white','dark blue'),
+            ('editfc','white','dark blue','bold'),
+            ('editbx','light gray','dark blue'),
             ('editcp','light gray', 'dark blue'),
-            ('accepted_command', 'black', 'light green'),
+            ('accepted_command','black','light green'),
+            ('stderr','light red','light blue'),
             ]
         self.main_loop = urwid.MainLoop(
             widget=self.top,
@@ -153,6 +157,9 @@ class ResourceManagerGUI(object):
             palette=self.palette,
             screen=self.screen,
             unhandled_input=self.unhandled_input)
+        self.main_loop.event_loop.watch_file(
+            self.pipe_stderr_read,
+            self.stderr_event)
         self.main_loop.event_loop.watch_file(
             self.pipe_log_read,
             self.pipe_log_event)
@@ -165,14 +172,23 @@ class ResourceManagerGUI(object):
         self.logger.debug("run urwid's GUI main loop...")
         self.main_loop.run()
 
+    def stderr_event(self):
+        """
+        Callback function from urwid.MainLoop(). Called when select.select()
+        returns `self.pipe_stderr_read`.
+        """
+        new_data = os.read(self.pipe_stderr_read,9999999).decode('UTF-8')
+        if len(new_data):
+            new_text = urwid.Text(('stderr', "STDERR: "+new_data))
+            self.listbox_extend([new_text])
+
     def pipe_log_event(self):
         """
-        Callback function from urwid.MainLoop. It's called when select.select()
-        returns `self.pipe_log_read`.
-        Log data is on the pipe for the UI to display in the ListBox!
-        Read from pipe, splitlines and make a Text widget out of each line.
-        One write may be returned in more than one read
-        -> chopped lines -> reassemble post-processing necessary!
+        Callback function from urwid.MainLoop(). Called when select.select()
+        returns `self.pipe_log_read` -> Log data is on the pipe for the UI
+        to display in the ListBox! Hence, read from pipe, splitlines and make
+        a Text widget out of each line. One write may be returned in more than
+        one read -> chopped lines -> reassembling post-processing -> listbox
         """
         new_data = self.pipe_log_prefix + os.read(self.pipe_log_read,9999999).decode('UTF-8')
         self.pipe_log_prefix = ''
@@ -186,7 +202,7 @@ class ResourceManagerGUI(object):
 
     def pipe_cmdresp_event(self):
         """
-        Callback function from urwid.MainLoop. It's called when select.select()
+        Callback function from urwid.MainLoop(). Called when select.select()
         returns `self.pipe_cmdresp_read`.
         There is a command response in the pipe!
         Read from pipe, assume one-liners and display them as command response
@@ -199,7 +215,7 @@ class ResourceManagerGUI(object):
 
     def pipe_uiinfo_update_event(self):
         """
-        Callback function from urwid.MainLoop. It's called when select.select()
+        Callback function from urwid.MainLoop(). Called when select.select()
         returns `self.pipe_uiinfo_update_read`.
         Read from pipe, collect UIupdate data. Data comes as "ConfigParserfile".
         Delimiter %% and && to delimit one update data set: %%ConfigString&&

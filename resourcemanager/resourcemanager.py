@@ -56,19 +56,21 @@ def main():
         if not os.path.exists(session_dirs[key]):
             os.mkdir(session_run_dir)
 
-    # log stderr to a file (not stdout: with urwid, stdout is very noisy :-))
-    stderr_logfile_path = os.path.join(session_dirs['session_log_dir'],
-        time.strftime("%Y%m%d-%H%M%S", time.localtime()) + "_RM_stderr.log")
-    stderr_log_fd = open(stderr_logfile_path,'w')
-    sys.stderr = Tee(sys.stdout, stderr_log_fd)
     # create inter thread communication components
     queue_uicmds = Queue.Queue()
     pipe_log_read, pipe_log_write = os.pipe()
     pipe_cmdresp_read, pipe_cmdresp_write = os.pipe()
     pipe_uiinfo_update_read, pipe_uiinfo_update_write = os.pipe()
+    pipe_stderr_read, pipe_stderr_write = os.pipe()
     # set up logging logger
     rootlog = ResourceManagerLogger(pipe_log_write, session_dirs['session_log_dir'])
     mainlog = logging.getLogger("RM")
+
+    # log stderr to stderr, to a real file and to a pipe (monitored by GUI)
+    stderr_logfile_path = os.path.join(session_dirs['session_log_dir'],
+        time.strftime("%Y%m%d-%H%M%S", time.localtime()) + "_RM_stderr.log")
+    stderr_log_fd = open(stderr_logfile_path,'w')
+    sys.stderr = Tee(sys.stderr, stderr_log_fd, pipe_stderr_write)
 
     # a quick "dont-run-multiple-instances-in-the-same-session-dir" solution
     lockfilepath = os.path.join(session_run_dir,'RM.LOCKFILE')
@@ -92,10 +94,11 @@ def main():
         rm_mainloop_thread.start()
         try:
             gui = ResourceManagerGUI(
-                pipe_log_read,
-                pipe_cmdresp_read,
-                pipe_uiinfo_update_read,
-                queue_uicmds)
+                pipe_log_read=pipe_log_read,
+                pipe_cmdresp_read=pipe_cmdresp_read,
+                pipe_uiinfo_update_read=pipe_uiinfo_update_read,
+                pipe_stderr_read=pipe_stderr_read,
+                queue_uicmds=queue_uicmds)
             mainlog.info("start ResourceManagerGUI: gui.main()")
             gui.main()
             mainlog.debug("returned from gui.main()")

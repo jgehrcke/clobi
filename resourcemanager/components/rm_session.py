@@ -857,11 +857,11 @@ class ResourceManagerLogger:
         self.formatter_file = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
         self.fh.setFormatter(self.formatter_file)
 
-        # "console" handler (to stderr by default) with level ERROR
-        self.ch = logging.StreamHandler()
-        self.ch.setLevel(logging.ERROR)
-        self.formatter_console = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
-        self.ch.setFormatter(self.formatter_console)
+        # # "console" handler (to stderr by default) with level ERROR
+        # self.ch = logging.StreamHandler()
+        # self.ch.setLevel(logging.ERROR)
+        # self.formatter_console = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+        # self.ch.setFormatter(self.formatter_console)
 
         # pipe handler to GUI
         # about encoding:
@@ -880,7 +880,7 @@ class ResourceManagerLogger:
         # add handler
         self.logger.addHandler(self.fh)
         self.logger.addHandler(self.ph)
-        self.logger.addHandler(self.ch)
+        # self.logger.addHandler(self.ch)
 
         # set logging for boto -> to file, not to console, no propagation to
         # higher levels in hierarchy
@@ -904,7 +904,7 @@ class ResourceManagerLogger:
 
 
 # create module logger
-logger = logging.getLogger("ResourceManager")
+logger = logging.getLogger("rm_session.py")
 
 
 class Object:
@@ -923,20 +923,24 @@ class Tee(object):
     set to sys.stdout, all stdout+stderr of the script is collected to console and
     to file at the same time.
     """
-    def __init__(self, stdout, file):
-        self.stdout = stdout
+    def __init__(self, stdouterr, file, pipe_write=None):
+        self.stdouterr = stdouterr
         self.file = file
+        self.pipe_write = pipe_write
 
     def write(self, data):
-        self.stdout.write(data)
+        self.stdouterr.write(data)
         try:
           self.file.write(data)
           self.file.flush()
         except:
           pass
 
+        if self.pipe_write is not None:
+            os.write(self.pipe_write, data)
+
     def flush(self):
-        self.stdout.flush()
+        self.stdouterr.flush()
         self.file.flush()
 
 
@@ -949,9 +953,11 @@ def check_file(file):
     """
     logger.debug("check_file("+file+")")
     if not os.path.exists(file):
+        logger.critical(file+' does not exist. Exit.')
         sys.exit(file+' does not exist')
     if not os.path.isfile(file):
-        sys.exit(file+' must be a file')
+        logger.critical(file+' is not a file. Exit.')
+        sys.exit(file+' is not a file.')
     return os.path.abspath(file)
 
 
@@ -964,7 +970,9 @@ def check_dir(dir):
     """
     logger.debug("check_dir("+dir+")")
     if not os.path.exists(dir):
+        logger.critical(dir+' does not exist. Exit.')
         sys.exit(dir+' does not exist')
     if not os.path.isdir(dir):
+        logger.critical(dir+' is not a file. Exit.')
         sys.exit(dir+' is not a directory')
     return os.path.abspath(dir)
