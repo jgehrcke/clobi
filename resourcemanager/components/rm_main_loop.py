@@ -90,39 +90,80 @@ class ResourceManagerMainLoop(threading.Thread):
         self.ui_msg(("Starting main loop. It provides an interactive mode. Type"
             " 'help' to get a list of available commands."))
         while True:
-            # check user-given command
+            # check user-given command (`uicmd` is a unicode object!)
             uicmd = self.poll_command_queue(timeout=1)
-            if uicmd == 'quit':
-                self.ui_msg('end RM main loop')
-                break
-                # continue statement .. really quit? enter again..
-            elif uicmd == 'help':
-                self.display_help_message()
-            elif uicmd == 'pause':
-                pause_loop = True
-                self.ui_msg(">>> pause")
-                self.ui_msg(("ResourceManagerMainLoop paused."
-                    " Enter 'continue' to go on."))
-            elif uicmd == 'continue':
-                pause_loop = False
-                self.ui_msg(">>> continue")
-                self.ui_msg("ResourceManagerMainLoop continues.")
-            elif uicmd == 'poll_sqs':
-                self.ui_msg(">>> poll_sqs")
-                self.ui_msg("Manual SQS monitoring data update triggered.")
-                self.sqs_check()
-            elif uicmd == 'poll_sdb':
-                self.ui_msg(">>> poll_sdb")
-                self.ui_msg("Manual SDB monitoring data update triggered.")
-                self.sdb_check()
-            elif uicmd is not None:
-                self.ui_msg(">>> "+uicmd.encode('utf-8'))
-                self.ui_msg('unknown command')
+            if uicmd is not None:
+                self.ui_msg('>>> '+uicmd)
+                if uicmd == 'quit':
+                    self.ui_msg('end RM main loop')
+                    break
+                    # continue statement .. really quit? enter again..
+                elif uicmd == 'help':
+                    self.display_help_message()
+                elif uicmd == 'pause':
+                    pause_loop = True
+                    self.ui_msg(("ResourceManagerMainLoop paused."
+                        " Enter 'continue' to go on."))
+                elif uicmd == 'continue':
+                    pause_loop = False
+                    self.ui_msg("ResourceManagerMainLoop continues.")
+                elif uicmd == 'poll_sqs':
+                    self.ui_msg("Manual SQS monitoring data update triggered.")
+                    self.sqs_check()
+                elif uicmd == 'poll_sdb':
+                    self.ui_msg("Manual SDB monitoring data update triggered.")
+                    self.sdb_check()
+                elif uicmd.startswith('run_vms'):
+                    self.run_vms(uicmd)
+                else:
+                    self.ui_msg('unknown command')
 
             # continue with automatic process, if not paused:
             if not pause_loop:
                 self.do_sqs_sdb_update_if_necessary()
-                #self.session.run_vm()
+
+    def run_vms(self, cmd):
+        """
+        check for "run_vms cloud_name number_of_vms" structure.
+        E.g.: "run_vms EC2 15" or "run_vms nb1 2"
+        invoke run command after re-insurance.
+        """
+        def nbx(string, nbcldidcs):
+            parts = string.split('nb')
+            if len(parts) == 2:
+                if parts[1].isdigit():
+                    if int(parts[1]) in nbcldidcs:
+                        return int(parts[1])
+            return False
+
+        words = [word.lower() for word in cmd.split()]
+        nbcldidcs = [nbcld.cloud_index for nbcld in self.session.nimbus_clouds]
+        if len(words) == 3 and words[0] == 'run_vms':
+            cloud = words[1]               # cloud name
+            number = words[2]              # number of vms
+            index = nbx(cloud,nbcldidcs)   # valid nimbus cloud index or False
+            if (cloud == 'ec2' or index) and number.isdigit():
+                number = int(number)
+                if cloud == 'ec2':
+                    if self.yes_no('Run %s VMs on EC2?' % number):
+                        self.session.run_vms_ec2(number)
+                    else:
+                        self.ui_msg('aborted.')
+                elif self.yes_no('Run %s VMs on Nimbus Cloud %s?'%(number,index)):
+                    self.session.run_vms_nimbus(index,number)
+                else:
+                    self.ui_msg('aborted.')
+                return
+        self.ui_msg(("better: e.g. 'run_vms EC2 3' or 'run_vms Nb4 2'."
+                     " Nimbus cloud indices available: %s"%str(nbcldidcs)))
+
+    def yes_no(self, question):
+        while True: # wait for instring to be a known command
+            self.ui_msg(question+" [yes/no]")
+            uicmd = self.poll_command_queue(timeout=None) # infinite block
+            self.ui_msg('>>> '+uicmd)
+            if uicmd == 'yes': return True
+            if uicmd == 'no': return False
 
     def do_sqs_sdb_update_if_necessary(self):
         now = time.time()
@@ -157,19 +198,20 @@ class ResourceManagerMainLoop(threading.Thread):
         """
         Send message to UI
         """
-        os.write(self.pipe_cmdresp_write, msg+"\n")
+        os.write(self.pipe_cmdresp_write, (msg+"\n").encode('UTF-8'))
 
     def display_help_message(self):
         """
         Write help message to `self.pipe_cmdresp_write` -> UI
         """
-        helpstring = (">>> help\nAvailable commands:"
-            +"\n* help:           display this help message"
-            +"\n* quit:           quit Resource Manager"
-            +"\n* pause:          pause main loop (stop automatic operation)"
-            +"\n* continue:       continue main loop after break"
-            +"\n* poll_sdb:       update SDB monitoring data"
-            +"\n* poll_sqs:       update SQS monitoring data")
+        helpstring = ("Available commands:"
+            +"\n* help:            Display this help message."
+            +"\n* quit:            Quit Resource Manager."
+            +"\n* pause:           Pause main loop (stop automatic operation)."
+            +"\n* continue:        Continue main loop after break."
+            +"\n* run_vms cloud X: Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
+            +"\n* poll_sdb:        Update SDB monitoring data."
+            +"\n* poll_sqs:        Update SQS monitoring data.")
         self.ui_msg(helpstring)
 
     def poll_command_queue(self, timeout):

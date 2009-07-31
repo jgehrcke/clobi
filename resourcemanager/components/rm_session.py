@@ -354,11 +354,17 @@ class Session(object):
         self.nimbus_clouds = None
         self.ec2 = None
 
-    def run_vm(self, args):
-        # where to run? at first, check Nimbus clouds. Then EC2.
-        for nimbus_cloud in self.nimbus_clouds:
-            if nimbus_cloud.number_of_running_vms < nimbus_cloud.inicfg.max_instances:
-                nimbus_cloud.run(args)
+    def run_vms_ec2(self, nbr):
+        self.logger.info("instructed to run %s VMs on EC2" % nbr)
+
+    def run_vms_nimbus(self, idx, nbr):
+        self.logger.info("instructed to run %s VMs on Nimbus Cloud %s" % (nbr,idx))
+
+    # def run_vm(self, args):
+        # # where to run? at first, check Nimbus clouds. Then EC2.
+        # for nimbus_cloud in self.nimbus_clouds:
+            # if nimbus_cloud.number_of_running_vms < nimbus_cloud.inicfg.max_instances:
+                # nimbus_cloud.run(args)
 
     def load_initial_session_config(self):
         """

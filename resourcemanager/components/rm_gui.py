@@ -68,7 +68,7 @@ class ResourceManagerGUI(object):
         self.pipe_log_prefix = ''
         self.pipe_cmdresp_prefix = ''
 
-        text_header = ("☺☺☺ CLOUD RESOURCE MANAGER 0.1 ✔ http://gehrcke.de ☺☺☺")
+        text_header = "☺☺☺ CLOUD RESOURCE MANAGER 0.1 ✔ http://gehrcke.de ☺☺☺"
 
         # UI LAYOUT in two levels
         # top widget:   FRAME with HEADER, BODY, FOOTER
@@ -298,7 +298,7 @@ class ResourceManagerGUI(object):
         user-input left over after all screen control related input processing.
         """
         if key == 'enter':
-            instring = self.edit.get_edit_text()
+            instring = self.edit.get_edit_text().decode('UTF-8')
             self.logger.debug("command entered: %s" % instring)
             self.queue_uicmds.put(instring)
             self.edit.set_edit_text('')
