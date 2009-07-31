@@ -86,12 +86,13 @@ class ResourceManagerMainLoop(threading.Thread):
         self.sqs_last_checked = time.time()
         self.sdb_last_checked = time.time()
         pause_loop = False
+        timeout = None
 
-        self.ui_msg(("Starting main loop. It provides an interactive mode. Type"
+        self.ui_msg(("Interactive mode started. Type"
             " 'help' to get a list of available commands."))
         while True:
             # check user-given command (`uicmd` is a unicode object!)
-            uicmd = self.poll_command_queue(timeout=1)
+            uicmd = self.poll_command_queue(timeout)
             if uicmd is not None:
                 self.ui_msg('>>> '+uicmd)
                 if uicmd == 'quit':
@@ -102,11 +103,13 @@ class ResourceManagerMainLoop(threading.Thread):
                     self.display_help_message()
                 elif uicmd == 'pause':
                     pause_loop = True
+                    timeout = None
                     self.ui_msg(("ResourceManagerMainLoop paused."
-                        " Enter 'continue' to go on."))
-                elif uicmd == 'continue':
+                        " Enter 'start' to go on."))
+                elif uicmd == 'start':
                     pause_loop = False
-                    self.ui_msg("ResourceManagerMainLoop continues.")
+                    timeout = 1
+                    self.ui_msg("ResourceManagerMainLoop starts/continues.")
                 elif uicmd == 'poll_sqs':
                     self.ui_msg("Manual SQS monitoring data update triggered.")
                     self.sqs_check()
@@ -208,7 +211,7 @@ class ResourceManagerMainLoop(threading.Thread):
             +"\n* help:            Display this help message."
             +"\n* quit:            Quit Resource Manager."
             +"\n* pause:           Pause main loop (stop automatic operation)."
-            +"\n* continue:        Continue main loop after break."
+            +"\n* start:           Start main loop / continue after break."
             +"\n* run_vms cloud X: Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
             +"\n* poll_sdb:        Update SDB monitoring data."
             +"\n* poll_sqs:        Update SQS monitoring data.")
