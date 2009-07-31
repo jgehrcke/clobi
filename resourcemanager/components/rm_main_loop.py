@@ -100,19 +100,24 @@ class ResourceManagerMainLoop(threading.Thread):
                 self.display_help_message()
             elif uicmd == 'pause':
                 pause_loop = True
-                self.ui_msg((">>> pause\nResourceManagerMainLoop paused."
+                self.ui_msg(">>> pause")
+                self.ui_msg(("ResourceManagerMainLoop paused."
                     " Enter 'continue' to go on."))
             elif uicmd == 'continue':
                 pause_loop = False
-                self.ui_msg(">>> continue\nResourceManagerMainLoop continues.")
+                self.ui_msg(">>> continue")
+                self.ui_msg("ResourceManagerMainLoop continues.")
             elif uicmd == 'poll_sqs':
-                self.ui_msg(">>> poll_sqs\nManual SQS monitoring data update triggered.")
+                self.ui_msg(">>> poll_sqs")
+                self.ui_msg("Manual SQS monitoring data update triggered.")
                 self.sqs_check()
             elif uicmd == 'poll_sdb':
-                self.ui_msg(">>> poll_sdb\nManual SDB monitoring data update triggered.")
+                self.ui_msg(">>> poll_sdb")
+                self.ui_msg("Manual SDB monitoring data update triggered.")
                 self.sdb_check()
             elif uicmd is not None:
-                self.ui_msg('unknown: '+uicmd.encode('utf-8'))
+                self.ui_msg(">>> "+uicmd.encode('utf-8'))
+                self.ui_msg('unknown command')
 
             # continue with automatic process, if not paused:
             if not pause_loop:
@@ -152,7 +157,7 @@ class ResourceManagerMainLoop(threading.Thread):
         """
         Send message to UI
         """
-        os.write(self.pipe_cmdresp_write, msg)
+        os.write(self.pipe_cmdresp_write, msg+"\n")
 
     def display_help_message(self):
         """

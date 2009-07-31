@@ -66,6 +66,7 @@ class ResourceManagerGUI(object):
         self.queue_uicmds = queue_uicmds
         self.pipe_uiinfo_update_prefix = ''
         self.pipe_log_prefix = ''
+        self.pipe_cmdresp_prefix = ''
 
         text_header = ("☺☺☺ CLOUD RESOURCE MANAGER 0.1 ✔ http://gehrcke.de ☺☺☺")
 
@@ -148,7 +149,7 @@ class ResourceManagerGUI(object):
             ('editfc','white','dark blue','bold'),
             ('editbx','light gray','dark blue'),
             ('editcp','light gray', 'dark blue'),
-            ('accepted_command','black','light green'),
+            ('cmdresponse','black','light green'),
             ('stderr','light red','light blue'),
             ]
         self.main_loop = urwid.MainLoop(
@@ -205,13 +206,27 @@ class ResourceManagerGUI(object):
         Callback function from urwid.MainLoop(). Called when select.select()
         returns `self.pipe_cmdresp_read`.
         There is a command response in the pipe!
-        Read from pipe, assume one-liners and display them as command response
+        Read from pipe, reassamble chopped lines + display them
         """
         new_data = os.read(self.pipe_cmdresp_read,9999999).decode('UTF-8')
-        if len(new_data):
-            self.logger.debug("cmd response received: %s" % new_data)
-            new_text = urwid.AttrWrap(urwid.Text(('accepted_command', new_data)),'accepted_command')
-            self.listbox_extend([new_text])
+        self.pipe_cmdresp_prefix = ''
+        if new_data:
+            new_lines = new_data.splitlines(True)
+            if not new_lines[-1].endswith("\n"):
+                self.pipe_cmdresp_prefix = new_lines[-1]
+                del new_lines[-1]
+            for line in new_lines:
+                if line.rstrip():
+                    self.log_cmdresp(line.rstrip())
+
+    def log_cmdresp(self, msg):
+        """
+        Log to file that there was a message from worker thread; display msg
+        on UI.
+        """
+        self.logger.debug("interactive mode data received from worker thread: %s" % msg)
+        txt = urwid.AttrWrap(urwid.Text(('cmdresponse', msg)),'cmdresponse')
+        self.listbox_extend([txt])
 
     def pipe_uiinfo_update_event(self):
         """
