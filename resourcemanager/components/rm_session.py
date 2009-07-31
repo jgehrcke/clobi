@@ -828,7 +828,7 @@ class NimbusCloud(object):
         returncode = gpi_sp.wait()
         self.logger.debug("grid-proxy-init returned with code %s" % returncode)
         if returncode is not 0:
-            self.logger.critical(("grid-proxy-init returnecode was "
+            self.logger.critical(("grid-proxy-init returncode was "
                                   "not 0. Check %s" % gpi_stdouterr_file_path))
         elif os.path.exists(grid_proxy_file_path):
             self.logger.info("valid grid proxy written to %s" % grid_proxy_file_path)

@@ -62,7 +62,7 @@ class ResourceManagerMainLoop(threading.Thread):
         self.logger.info("LOAD INITIAL SESSION CONFIGURATION...")
         self.session.load_initial_session_config()
 
-        cloudstring = 'Clouds: '
+        cloudstring = ''
         if self.session.inicfg.ec2.use:
             cloudstring += 'EC2, '
         for nimbus_cloud in self.session.nimbus_clouds:
@@ -85,7 +85,7 @@ class ResourceManagerMainLoop(threading.Thread):
         # init some needed variables
         self.sqs_last_checked = time.time()
         self.sdb_last_checked = time.time()
-        pause_loop = False
+        pause_loop = True
         timeout = None
 
         self.ui_msg(("Interactive mode started. Type"
@@ -175,8 +175,8 @@ class ResourceManagerMainLoop(threading.Thread):
         next_sdb_check_in = abs(min(0, (now -
             (self.sdb_last_checked + self.session.inicfg.sdb.monitor_vms_pollinterval))))
         self.request_update_uiinfo(dict(
-            txt_sqs_upd="SQS update: "+str(int(round(next_sqs_check_in))).zfill(5)+" s",
-            txt_sdb_upd="SDB update: "+str(int(round(next_sdb_check_in))).zfill(5)+" s"))
+            txt_sqs_upd=str(int(round(next_sqs_check_in))).zfill(5)+" s",
+            txt_sdb_upd=str(int(round(next_sdb_check_in))).zfill(5)+" s"))
         if next_sqs_check_in == 0:
             self.logger.info("Automatic SQS monitoring data update triggered.")
             self.sqs_check()
@@ -204,7 +204,7 @@ class ResourceManagerMainLoop(threading.Thread):
         os.write(self.pipe_cmdresp_write, (msg+"\n").encode('UTF-8'))
 
     def display_help_message(self):
-        """
+        """poll
         Write help message to `self.pipe_cmdresp_write` -> UI
         """
         helpstring = ("Available commands:"

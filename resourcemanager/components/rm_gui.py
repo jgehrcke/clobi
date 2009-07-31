@@ -68,7 +68,7 @@ class ResourceManagerGUI(object):
         self.pipe_log_prefix = ''
         self.pipe_cmdresp_prefix = ''
 
-        text_header = "☺☺☺ CLOUD RESOURCE MANAGER 0.1 ✔ http://gehrcke.de ☺☺☺"
+        text_header = "☺☺☺ CLOUD RESOURCE MANAGER ✔ http://gehrcke.de ☺☺☺"
 
         # UI LAYOUT in two levels
         # top widget:   FRAME with HEADER, BODY, FOOTER
@@ -84,10 +84,10 @@ class ResourceManagerGUI(object):
         self.hd_pl_cl_1 = 	urwid.Pile([
             urwid.Text('SESSION INFO', align='center'),
             urwid.Divider("-"),
-            self.txt_name,
-            self.txt_cloud,
-            self.txt_sqs_upd,
-            self.txt_sdb_upd
+            urwid.Columns([('fixed', 12, urwid.Text('Name:')), self.txt_name]),
+            urwid.Columns([('fixed', 12, urwid.Text('Clouds:')), self.txt_cloud]),
+            urwid.Columns([('fixed', 12, urwid.Text('SQS update:')), self.txt_sqs_upd]),
+            urwid.Columns([('fixed', 12, urwid.Text('SDB update:')), self.txt_sdb_upd])
             ])
 
         self.txt_sqs_jobs = urwid.Text('P01: 27 jobs\nP02: 13 jobs', align='left', wrap='any')
@@ -100,21 +100,23 @@ class ResourceManagerGUI(object):
         self.hd_pl_cl_3 = 	urwid.Pile([
             urwid.Text('SDB DATA', align='center'),
             urwid.Divider("-"),
-            urwid.Text('started VMs:\n   EC2:12\n   Nb1:1\n   Nb2:13', align='left', wrap='any'),
-            urwid.Text('running VMs:\n   EC2:10\n   Nb1:0\n   Nb2:12', align='left', wrap='any'),
+            urwid.Text(('vms','started VMs:')),
+            urwid.Text('EC2:    Nb1:    Nb2:    ', align='left', wrap='any'),
+            urwid.Text(('runningvms','running VMs:')),
+            urwid.Text('EC2:    Nb1:    Nb2:    ', align='left', wrap='any'),
             ])
 
         self.uiinfo_dict = dict(
-            txt_name='Name: ',
-            txt_sdb_upd='SDB update: XXX s',
-            txt_sqs_upd='SQS update: YYY s',
-            txt_cloud='Clouds: ',
+            txt_name='',
+            txt_sdb_upd='',
+            txt_sqs_upd='',
+            txt_cloud='',
             txt_sqs_jobs='')
 
-        self.header_body = urwid.Columns([
+        self.header_body = urwid.LineBox(urwid.Columns([
             self.hd_pl_cl_1,
             self.hd_pl_cl_2,
-            self.hd_pl_cl_3], 1)
+            self.hd_pl_cl_3], 1))
 
         self.header_header = urwid.AttrWrap(urwid.Text(text_header,align='center'),'header')
         self.header = urwid.Pile([
@@ -151,6 +153,8 @@ class ResourceManagerGUI(object):
             ('editcp','light gray', 'dark blue'),
             ('cmdresponse','black','light green'),
             ('stderr','light red','light blue'),
+            ('vms','light gray','dark blue'),
+            ('runningvms','light green','dark blue')
             ]
         self.main_loop = urwid.MainLoop(
             widget=self.top,
