@@ -413,6 +413,7 @@ class Session(object):
             self.save_extended_config_to_file()
             self.sdb_session.save_sdb_session_config_to_file()
             self.sqs_session.save_sqs_session_config_to_file()
+        self.logger.info("create grid proxy for each Nimbus cloud...")
         for nimbus_cloud in self.nimbus_clouds:
             nimbus_cloud.grid_proxy_init()
 

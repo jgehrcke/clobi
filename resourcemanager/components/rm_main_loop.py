@@ -76,25 +76,24 @@ class ResourceManagerMainLoop(threading.Thread):
         self.logger.debug("main_loop() started.")
         sqs_last_checked = sdb_last_checked = time.time()
         pause_loop = False
+        self.ui_msg(("Now starting main loop with interactive mode. To get a"
+            " list of all available commands, type 'help'"))
         while True:
-            try:
-                uicmd = self.queue_uicmds.get(block=True, timeout=1)
-            except Queue.Empty:
-                # os.write(self.pipe_cmdresp_write, '1 sec and got nothing :-(')
-                uicmd = None
+            uicmd = self.poll_command_queue(timeout=1)
             if uicmd == 'quit':
-                os.write(self.pipe_cmdresp_write, 'end RM main loop')
+                self.ui_msg('end RM main loop')
                 break
                 # continue statement .. really quit? enter again..
+            elif uicmd == 'help':
+                self.display_help_message()
             elif uicmd == 'break':
                 pause_loop = True
-                os.write(self.pipe_cmdresp_write, ("ResourceManagerMainLoop paused."
-                                                   " Enter 'continue' to go on."))
+                self.ui_msg("ResourceManagerMainLoop paused. Enter 'continue' to go on.")
             elif uicmd == 'continue':
                 pause_loop = False
-                os.write(self.pipe_cmdresp_write, "ResourceManagerMainLoop continues.")
+                self.ui_msg("ResourceManagerMainLoop continues.")
             elif uicmd is not None:
-                os.write(self.pipe_cmdresp_write, 'unknown: '+uicmd.encode('utf-8'))
+                self.ui_msg('unknown: '+uicmd.encode('utf-8'))
 
             if not pause_loop:
                 now = time.time()
@@ -120,6 +119,36 @@ class ResourceManagerMainLoop(threading.Thread):
                     sdb_last_checked = time.time()
 
                  #self.session.run_vm()
+
+    def ui_msg(self, msg):
+        """
+        Send message to UI
+        """
+        os.write(self.pipe_cmdresp_write, msg)
+
+    def display_help_message(self):
+        """
+        Write help message to `self.pipe_cmdresp_write` -> UI
+        """
+        helpstring = ("Available commands:"
+            +"\n* help:           display this help message"
+            +"\n* quit:           quit Resource Manager"
+            +"\n* break:          break main loop (stop monitoring etc)"
+            +"\n* continue:       continue main loop after break"
+            +"\n* poll_sdb:       update SDB monitoring data"
+            +"\n* poll_sqs:       update SQS monitoring data")
+        self.ui_msg(helpstring)
+
+    def poll_command_queue(self, timeout):
+        """
+        Poll queue in a blocking manner and return received item.
+        If there is nothing within timeout, return None
+        """
+        try:
+            return self.queue_uicmds.get(block=True, timeout=timeout)
+        except Queue.Empty:
+            # os.write(self.pipe_cmdresp_write, '1 sec and got nothing :-(')
+            return None
 
     def request_update_uiinfo(self, update_dict):
         """

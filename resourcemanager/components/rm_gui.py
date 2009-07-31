@@ -210,7 +210,7 @@ class ResourceManagerGUI(object):
         new_data = os.read(self.pipe_cmdresp_read,9999999).decode('UTF-8')
         if len(new_data):
             self.logger.debug("cmd response: %s" % new_data)
-            new_text = urwid.Text(('accepted_command', new_data))
+            new_text = urwid.AttrWrap(urwid.Text(('accepted_command', new_data)),'accepted_command')
             self.listbox_extend([new_text])
 
     def pipe_uiinfo_update_event(self):
