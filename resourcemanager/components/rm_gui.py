@@ -143,7 +143,7 @@ class ResourceManagerGUI(object):
         self.screen.set_input_timeouts(max_wait=None)
         self.palette = [
             ('body','black','light blue','standout'),
-            ('header','white','dark red','bold'),
+            ('header','white','black','bold'),
             ('header_body','white','dark blue'),
             ('editfc','white','dark blue','bold'),
             ('editbx','light gray','dark blue'),
@@ -209,7 +209,7 @@ class ResourceManagerGUI(object):
         """
         new_data = os.read(self.pipe_cmdresp_read,9999999).decode('UTF-8')
         if len(new_data):
-            self.logger.debug("cmd response: %s" % new_data)
+            self.logger.debug("cmd response received: %s" % new_data)
             new_text = urwid.AttrWrap(urwid.Text(('accepted_command', new_data)),'accepted_command')
             self.listbox_extend([new_text])
 
