@@ -345,8 +345,10 @@ class Session(object):
         self.log_dir = session_dirs['session_log_dir']
         self.save_dir = session_dirs['session_save_dir']
         self.save_config_file_path = os.path.join(self.save_dir,"save.session.config")
+        self.save_vms_file_path = os.path.join(self.save_dir,"save.session.vms")
+        self.save_last_vm_id_file_path = os.path.join(self.save_dir,"save.session.last_vm_id")
 
-        # populated during runtime
+        # populated / changed during runtime
         self.session_id = None
         self.sdb_session = None
         self.sqs_session = None
@@ -354,11 +356,52 @@ class Session(object):
         self.nimbus_clouds = None
         self.ec2 = None
 
+    def generate_vm_ids(self, number):
+        """
+        Create and return a bunch of new VM IDs in form of a list.
+        To securely keep track of generated IDs, always save the last generated
+        ID number to file. Load it from there on each call, too.
+        """
+        self.logger.debug(("read last VM ID number from file "+
+                            self.save_last_vm_id_file_path))
+        try:
+            last_vm_id_number = int(open(self.save_last_vm_id_file_path,'r').read())
+            self.logger.debug("read last VM ID: %s" % last_vm_id_number)
+        except IOError:
+            if self.resume:
+                self.logger.critical(("session in resume mode and IOError on last "
+                                      " VM ID file. Smells bad; exit!"))
+                sys.exit(1)
+            else:
+                self.logger.debug("could not be opened. Start at 0")
+                last_vm_id_number = 0
+
+        vm_id_list = []
+        for foo in xrange(number):
+            last_vm_id_number += 1
+            vm_id_list.append("vm-"+unicode(last_vm_id_number).zfill(4))
+
+        self.logger.debug(("write last VM ID number to file "+
+                             self.save_last_vm_id_file_path))
+        try:
+            fd = open(self.save_last_vm_id_file_path,'w') # (over-)write mode
+            fd.write(str(last_vm_id_number))
+            fd.close()
+        except IOError:
+            self.logger.critical(("last VM ID number (%s) could not be saved: "
+                                  "IOError. Exit!" % last_vm_id_number))
+            sys.exit(1)
+        return vm_id_list
+
     def run_vms_ec2(self, nbr):
         self.logger.info("instructed to run %s VMs on EC2" % nbr)
 
     def run_vms_nimbus(self, idx, nbr):
-        self.logger.info("instructed to run %s VMs on Nimbus Cloud %s" % (nbr,idx))
+        for nbcloud in self.nimbus_clouds:
+            if nbcloud.cloud_index == idx:
+                self.logger.info("order to run %s VMs on Nimbus Cloud %s" % (nbr,idx))
+                nbcloud.run_vms(number=nbr)
+                return
 
     # def run_vm(self, args):
         # # where to run? at first, check Nimbus clouds. Then EC2.
@@ -386,10 +429,9 @@ class Session(object):
             self.nimbus_clouds = []
             for idx, cfg in isc.nimbus.sorted_configfile_dict.items():
                 nimbus_cloud = NimbusCloud(
+                    session = self,
                     nimbus_config_file_abspath = cfg,
-                    nimbus_cloud_index = idx,
-                    session_run_dir = self.run_dir,
-                    resume_session = isc.resume_session)
+                    nimbus_cloud_index = idx)
                 nimbus_cloud.load_initial_nimbus_cloud_config()
                 nimbus_cloud.check_cloud_client_exists()
                 self.nimbus_clouds.append(nimbus_cloud)
@@ -727,10 +769,9 @@ class NimbusCloud(object):
     """
     An instance of this class represents a Nimbus Cloud within the session.
     """
-    def __init__(self,  nimbus_config_file_abspath,
-                        nimbus_cloud_index,
-                        session_run_dir,
-                        resume_session = False):
+    def __init__(self,  session,
+                        nimbus_config_file_abspath,
+                        nimbus_cloud_index):
         """
         nimbus_cloud_index: importance/priority of this Nimbus cloud in
                             comparision with other Nimbus clouds. The cloud with
@@ -741,10 +782,9 @@ class NimbusCloud(object):
         self.logger.debug("initialize NimbusCloud object")
 
         # constructor arguments
+        self.session = session
         self.nimbus_config_file_abspath = nimbus_config_file_abspath
         self.cloud_index = nimbus_cloud_index
-        self.resume_session = resume_session
-        self.session_run_dir = session_run_dir
 
         # arguments populated during runtime
         self.inicfg = None
@@ -752,17 +792,31 @@ class NimbusCloud(object):
         self.grid_proxy_create_timestamp = None
         self.number_of_running_vms = None
 
-    def run_vm(self):
-        clclwrapper = ResourceManager.NimbusClientWrapper(
-                            nimbus_cloud=self,
-                            action="deploy",
-                            vm_id="0001",
-                            session_run_dir=self.session_run_dir)
+    def run_vms(self, number):
+        self.logger.info("request VM %s ID(s)" % number)
+        vm_ids=self.session.generate_vm_ids(number)
+        self.logger.info("got: "+str(vm_ids))
+        fd = open(self.session.save_vms_file_path,'a')
+        savedata = []
+        for vm_id in vm_ids:
+            savedata.append(vm_id+";"+"Nb"+str(self.cloud_index)+";"+"prepared")
+        savedata = '\n'.join(savedata) + '\n'
+        self.logger.debug(("append to file %s : %s" %
+                           (self.session.save_vms_file_path, savedata)))
+        fd.write(savedata)
+        fd.close()
+        self.logger.info(("%s new VMs added as 'prepared' to %s" %
+                          (number, self.session.save_vms_file_path)))
 
-        clclwrapper.set_up_cmdline_params()
-        clclwrapper.set_up_env_vars()
+        # clclwrapper = ResourceManager.NimbusClientWrapper(
+            # nimbus_cloud=self,
+            # action="deploy",
+            # vm_id="0001",
+            # session_run_dir=self.session.run_dir)
+
+        # clclwrapper.set_up_cmdline_params()
+        # clclwrapper.set_up_env_vars()
         #clclwrapper.run()
-
 
     def load_initial_nimbus_cloud_config(self):
         self.logger.info(("load initial config for Nimbus cloud %s from %s"
@@ -785,7 +839,7 @@ class NimbusCloud(object):
 
     def expires_grid_proxy(self):
         hour_diff = abs(time.time()-self.grid_proxy_create_timestamp)/3600
-        security_delta = 2
+        security_delta = 2 # in hours
         self.logger.debug(("check grid proxy aging: %s / %s (-%s)"
                       % (hour_diff,self.inicfg.grid_proxy_hours,security_delta)))
         if hour_diff >= self.inicfg.grid_proxy_hours - security_delta:
@@ -795,7 +849,7 @@ class NimbusCloud(object):
     def grid_proxy_init(self):
         # define proxy file and grid-proxy-init logfile
         timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        gpi_run_dir = os.path.join(self.session_run_dir, "grid-proxy-init")
+        gpi_run_dir = os.path.join(self.session.run_dir, "grid-proxy-init")
         if not os.path.exists(gpi_run_dir):
             os.mkdir(gpi_run_dir)
         gp_file_name = "cloud_%s_%s.proxy" % (self.cloud_index, timestring)
@@ -825,7 +879,7 @@ class NimbusCloud(object):
                                   cwd=gpi_run_dir,
                                   shell=True)
         self.logger.debug("wait for subprocess to return...")
-        returncode = gpi_sp.wait()
+        returncode = gpi_sp.wait() # quite fast (1-5 seconds)
         self.logger.debug("grid-proxy-init returned with code %s" % returncode)
         if returncode is not 0:
             self.logger.critical(("grid-proxy-init returncode was "

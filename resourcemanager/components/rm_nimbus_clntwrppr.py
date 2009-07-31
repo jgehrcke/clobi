@@ -103,3 +103,4 @@ class NimbusClientWrapper(object):
         os.environ['X509_USER_PROXY'] = self.nc.grid_proxy_file_path
         returncode = subprocess.call(["env > environment.log"],shell=True)
         #print "envvarr test returncode" + str(returncode)
+
