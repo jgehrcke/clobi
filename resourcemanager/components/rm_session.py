@@ -31,6 +31,7 @@ import hashlib
 import random
 import time
 import subprocess
+import shutil
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
 
@@ -347,6 +348,9 @@ class Session(object):
         self.save_config_file_path = os.path.join(self.save_dir,"save.session.config")
         self.save_vms_file_path = os.path.join(self.save_dir,"save.session.vms")
         self.save_last_vm_id_file_path = os.path.join(self.save_dir,"save.session.last_vm_id")
+        self.save_backup_dir = os.path.join(self.save_dir,"backup")
+        if not os.path.exists(self.save_backup_dir):
+            os.makedirs(self.save_backup_dir)
 
         # populated / changed during runtime
         self.session_id = None
@@ -355,6 +359,27 @@ class Session(object):
         self.inicfg = None
         self.nimbus_clouds = None
         self.ec2 = None
+
+    def generate_userdata(self, vm_id):
+        """
+        Generate userdata string for VM ID. This is the string delivered with
+        the request. Hence, it must be small (zipped) and encoded for reliable
+        transmission within Query URL (EC2) or SOAP message (Nimbus) -> Base64.
+        """
+        self.logger.info("generate_userdata(%s) call" % vm_id)
+        return vm_id
+
+    def append_save_vms_file(self, savestring):
+        """
+        Append data to VMs save file. like: "vm_id;cloud;prepared".
+        Backup before.
+        """
+        backup_file(self.save_vms_file_path, self.save_backup_dir)
+        fd = open(self.save_vms_file_path,'a')
+        fd.write(savestring)
+        fd.close()
+        self.logger.debug(("appended to file %s : %s" %
+                           (self.save_vms_file_path, savestring)))
 
     def generate_vm_ids(self, number):
         """
@@ -381,8 +406,8 @@ class Session(object):
             last_vm_id_number += 1
             vm_id_list.append("vm-"+unicode(last_vm_id_number).zfill(4))
 
-        self.logger.debug(("write last VM ID number to file "+
-                             self.save_last_vm_id_file_path))
+        self.logger.debug(("write last VM ID number (%s) to file %s"%
+                           (last_vm_id_number,self.save_last_vm_id_file_path)))
         try:
             fd = open(self.save_last_vm_id_file_path,'w') # (over-)write mode
             fd.write(str(last_vm_id_number))
@@ -786,29 +811,75 @@ class NimbusCloud(object):
         self.nimbus_config_file_abspath = nimbus_config_file_abspath
         self.cloud_index = nimbus_cloud_index
 
+        # The cloud client will run in subfolders of this directory
+        self.nb_clcl_main_work_dir = os.path.join(self.session.run_dir,
+            "nimbus_cloud_client_runs")
+        if not os.path.exists(self.nb_clcl_main_work_dir):
+            os.makedirs(self.nb_clcl_main_work_dir)
+
         # arguments populated during runtime
         self.inicfg = None
         self.grid_proxy_file_path = None
         self.grid_proxy_create_timestamp = None
         self.number_of_running_vms = None
 
+        # this is a list of cloudclient_run_order dicts, containing pairs of
+        # 1) NimbusClientWrapper instance 2) VM ID
+        # only working Cloud Clients have an entry here. finished->deleted
+        self.cloudclient_run_orders = []
+
     def run_vms(self, number):
+        """
+        1) At first, grab VM ID's from our instructor, the session instance. It
+        will give us some unique (within this session) VM IDs for the new VMs
+        to start.
+        2) Save "prepared" state to sessions VM save file.
+        3) check grid proxy
+        4) Per request only *ONE* VM to be able to deliver individual user-data
+           containint the VM ID for each VM.
+            -->Do for each VM ID (each cloud client run):
+                - Generate a cloud client wrapper run ID
+                - modify general userdata: append VM ID
+                - create cloudclient_run_order dict
+                - create NimbusClientWrapper instance
+        """
+        # grab VM IDs and add data to save.session.vms
         self.logger.info("request VM %s ID(s)" % number)
         vm_ids=self.session.generate_vm_ids(number)
         self.logger.info("got: "+str(vm_ids))
-        fd = open(self.session.save_vms_file_path,'a')
-        savedata = []
-        for vm_id in vm_ids:
-            savedata.append(vm_id+";"+"Nb"+str(self.cloud_index)+";"+"prepared")
+        savedata = [(vm_id+";"+"Nb"+str(self.cloud_index)+";"+"prepared")
+                        for vm_id in vm_ids ]
         savedata = '\n'.join(savedata) + '\n'
-        self.logger.debug(("append to file %s : %s" %
-                           (self.session.save_vms_file_path, savedata)))
-        fd.write(savedata)
-        fd.close()
-        self.logger.info(("%s new VMs added as 'prepared' to %s" %
-                          (number, self.session.save_vms_file_path)))
+        self.session.append_save_vms_file(savedata)
 
-        # clclwrapper = ResourceManager.NimbusClientWrapper(
+        # renew grid proxy if necessary
+        if self.expires_grid_proxy():
+            self.grid_proxy_init()
+
+        # for each VM ID generate cloud client run ID and run the stuff!
+        for vm_id in vm_ids:
+            run_id = self.generate_clclwrapper_run_id(vm_id)
+            cloudclient_run_order = {}
+            cloudclient_run_order['vm_id'] = vm_id
+            cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
+                run_id = run_id,
+                gridproxyfile=self.grid_proxy_file_path,
+                exe=os.path.join(self.inicfg.nimbus_cloud_client_root, "lib/workspace.sh"),
+                action="deploy",
+                workdir=os.path.join(self.nb_clcl_main_work_dir,run_id),
+                userdata=self.session.generate_userdata(vm_id),
+                eprfile=os.path.join(self.nb_clcl_main_work_dir,run_id,vm_id+".epr"),
+                sshfile=self.inicfg.ssh_pubkey_file_path,
+                metadatafile=self.inicfg.metadata_file_path,
+                serviceurl=self.inicfg.service_url,
+                requestfile=self.inicfg.request_file_path,
+                serviceidentity=self.inicfg.service_identity,
+                displayname="cloud-%s-%s" % (self.cloud_index,vm_id),
+                exitstate="Running",
+                polldelay="5000")
+            self.cloudclient_run_orders.append(cloudclient_run_order)
+            cloudclient_run_order['clclwrapper'].run()
+            
             # nimbus_cloud=self,
             # action="deploy",
             # vm_id="0001",
@@ -817,6 +888,18 @@ class NimbusCloud(object):
         # clclwrapper.set_up_cmdline_params()
         # clclwrapper.set_up_env_vars()
         #clclwrapper.run()
+
+    def generate_clclwrapper_run_id(self, vm_id):
+        """
+        Generate nimbus cloud client wrapper run ID from VM ID, cloud index,
+        current time and random string -> Should be unique  ;-)
+        The run ID represents one call of the cloud client. It is e.g. used
+        as directory name for workspace.sh logfiles and EPR file(s).
+        """
+        timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
+        run_id = ("%s-nb%s-%s" %(vm_id,self.cloud_index,timestr))
+        self.logger.info("generated Nimbus Cloud Client run ID: "+run_id)
+        return run_id
 
     def load_initial_nimbus_cloud_config(self):
         self.logger.info(("load initial config for Nimbus cloud %s from %s"
@@ -840,10 +923,12 @@ class NimbusCloud(object):
     def expires_grid_proxy(self):
         hour_diff = abs(time.time()-self.grid_proxy_create_timestamp)/3600
         security_delta = 2 # in hours
-        self.logger.debug(("check grid proxy aging: %s / %s (-%s)"
-                      % (hour_diff,self.inicfg.grid_proxy_hours,security_delta)))
+        self.logger.debug(("grid proxy age: %s h / %s(-%s) h"
+                      % (round(hour_diff,5),self.inicfg.grid_proxy_hours,security_delta)))
         if hour_diff >= self.inicfg.grid_proxy_hours - security_delta:
+            self.logger.debug("grid proxy expires.")
             return True
+        self.logger.debug("grid proxy still valid.")
         return False
 
     def grid_proxy_init(self):
@@ -884,7 +969,7 @@ class NimbusCloud(object):
         self.logger.debug("wait for subprocess to return...")
         returncode = gpi_sp.wait() # quite fast (1-5 seconds)
         self.logger.debug("grid-proxy-init returned with code %s" % returncode)
-        
+
         # check output
         if returncode is not 0:
             self.logger.critical(("grid-proxy-init returncode was "
@@ -1009,6 +1094,28 @@ class Tee(object):
     def flush(self):
         self.stdouterr.flush()
         self.file.flush()
+
+
+def backup_file(file_path, backup_dir_path):
+    """
+    Backup any file to any dir. Therefore, append the original filename with
+    a timestring (if one file is backupped multiple times within one second,
+    it's not worth to keep all backups; hence, 1 s resolution is okay here.)
+    """
+    logger.debug("backup %s to %s ..." %(file_path, backup_dir_path))
+    if os.path.exists(file_path) and os.path.exists(backup_dir_path):
+        if os.path.isfile(file_path) and os.path.isdir(backup_dir_path):
+            timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+            filename = os.path.basename(file_path)
+            bckp_filename = "%s_%s" % (filename, timestring)
+            bckp_file_path = os.path.join(backup_dir_path, bckp_filename)
+            shutil.copy(file_path, bckp_file_path)
+        else:
+            logger.debug(("%s not file and/or %s not dir" %
+                                (file_path, backup_dir_path)))
+    else:
+        logger.debug(("%s and/or %s does not exist" %
+                            (file_path, backup_dir_path)))
 
 
 def check_file(file):

@@ -125,6 +125,11 @@ class ResourceManagerMainLoop(threading.Thread):
             if not pause_loop:
                 self.do_sqs_sdb_update_if_necessary()
 
+            # something like..
+            # for cloud in nb cloud:
+                # for clclwrapper process in clclwrapper processes:
+                    # get returncode etc..
+
     def run_vms(self, cmd):
         """
         check for "run_vms cloud_name number_of_vms" structure.
