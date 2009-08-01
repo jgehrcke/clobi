@@ -34,6 +34,7 @@ import subprocess
 import shutil
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
+from components.cfg_parse_strzip import SafeConfigParserStringZip
 
 sys.path.append("components")
 import boto
@@ -366,7 +367,8 @@ class Session(object):
         the request. Hence, it must be small (zipped) and encoded for reliable
         transmission within Query URL (EC2) or SOAP message (Nimbus) -> Base64.
         """
-        self.logger.info("generate_userdata(%s) call" % vm_id)
+        
+        self.logger.info("generated userdata: '%s'" % vm_id)
         return vm_id
 
     def append_save_vms_file(self, savestring):
@@ -844,9 +846,9 @@ class NimbusCloud(object):
                 - create NimbusClientWrapper instance
         """
         # grab VM IDs and add data to save.session.vms
-        self.logger.info("request VM %s ID(s)" % number)
+        self.logger.debug("request %s VM ID(s)" % number)
         vm_ids=self.session.generate_vm_ids(number)
-        self.logger.info("got: "+str(vm_ids))
+        self.logger.info("generated VM IDs: %s " % str(vm_ids))
         savedata = [(vm_id+";"+"Nb"+str(self.cloud_index)+";"+"prepared")
                         for vm_id in vm_ids ]
         savedata = '\n'.join(savedata) + '\n'
@@ -878,7 +880,7 @@ class NimbusCloud(object):
                 exitstate="Running",
                 polldelay="5000")
             self.cloudclient_run_orders.append(cloudclient_run_order)
-            cloudclient_run_order['clclwrapper'].run()
+            #cloudclient_run_order['clclwrapper'].run()
             
             # nimbus_cloud=self,
             # action="deploy",
@@ -923,12 +925,12 @@ class NimbusCloud(object):
     def expires_grid_proxy(self):
         hour_diff = abs(time.time()-self.grid_proxy_create_timestamp)/3600
         security_delta = 2 # in hours
-        self.logger.debug(("grid proxy age: %s h / %s(-%s) h"
-                      % (round(hour_diff,5),self.inicfg.grid_proxy_hours,security_delta)))
+        agestring = ("grid proxy age: %s h / %s(-%s) h"
+            % (round(hour_diff,5),self.inicfg.grid_proxy_hours,security_delta))
         if hour_diff >= self.inicfg.grid_proxy_hours - security_delta:
-            self.logger.debug("grid proxy expires.")
+            self.logger.info("%s -> expires." % agestring)
             return True
-        self.logger.debug("grid proxy still valid.")
+        self.logger.info("%s -> still valid." % agestring)
         return False
 
     def grid_proxy_init(self):

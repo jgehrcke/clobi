@@ -107,7 +107,7 @@ class NimbusClientWrapper(object):
         self.logger.info("run Nimbus Cloud Client as subprocess")
 
         timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        stdouterr_file_name = "cloudclient_%s_%s_.log"%(self.action,timestring)
+        stdouterr_file_name = "cloudclient_%s_%s.log"%(self.action,timestring)
         stdouterr_file_path = os.path.join(self.workdir,stdouterr_file_name)
         self.logger.debug("open subprocess logfile for writing: %s"%stdouterr_file_path)
         stdouterr_file = open(stdouterr_file_path,'w')
