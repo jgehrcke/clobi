@@ -392,6 +392,15 @@ class Session(object):
         self.logger.debug(("appended to file %s : %s" %
                            (self.save_vms_file_path, savestring)))
 
+    def update_save_vms_file_entry(self, vm_id, new_state):
+        """
+        Update the line in the file that corresponds to vm_id. Record a new
+        state. Backup before!.
+        """
+        backup_file(self.save_vms_file_path, self.save_backup_dir)
+        self.logger.info(("update_save_vms_file_entry(): "
+                          "VM ID: %s; new state: %s" % (vm_id, new_state)))
+
     def generate_vm_ids(self, number):
         """
         Create and return a bunch of new VM IDs in form of a list.
@@ -857,7 +866,7 @@ class NimbusCloud(object):
         # grab VM IDs and add data to save.session.vms
         self.logger.debug("request %s VM ID(s)" % number)
         vm_ids=self.session.generate_vm_ids(number)
-        self.logger.info("generated VM IDs: %s " % str(vm_ids))
+        self.logger.info("generated VM ID(s): %s " % ', '.join(vm_ids))
         savedata = [(vm_id+";"+"Nb"+str(self.cloud_index)+";"+"prepared")
                         for vm_id in vm_ids ]
         savedata = '\n'.join(savedata) + '\n'
@@ -871,6 +880,7 @@ class NimbusCloud(object):
         for vm_id in vm_ids:
             run_id = self.generate_clclwrapper_run_id(vm_id)
             cloudclient_run_order = {}
+            cloudclient_run_order['run_id'] = run_id
             cloudclient_run_order['vm_id'] = vm_id
             cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
                 run_id = run_id,
@@ -889,7 +899,7 @@ class NimbusCloud(object):
                 exitstate="Running",
                 polldelay="5000")
             self.cloudclient_run_orders.append(cloudclient_run_order)
-            #cloudclient_run_order['clclwrapper'].run()
+            cloudclient_run_order['clclwrapper'].run()
 
             # nimbus_cloud=self,
             # action="deploy",
@@ -899,6 +909,28 @@ class NimbusCloud(object):
         # clclwrapper.set_up_cmdline_params()
         # clclwrapper.set_up_env_vars()
         #clclwrapper.run()
+
+    def check_nimbus_cloud_client_wrappers(self):
+        """
+        Check state of Cloud Client runs. Update save.session.vms file with
+        success or error information. Delete cloutclient_run_order list item
+        after analysis.
+        """
+        delete_indices = []
+        for idx, clclrunorder in enumerate(self.cloudclient_run_orders):
+            eprfile = clclrunorder['clclwrapper'].get_epr_file_on_success()
+            if eprfile is not None:                     # subprocess ended
+                if not eprfile:                         # returncode != 0
+                    eprfile = "ERROR_in_client_run_%s" % clclrunorder['run_id']
+                self.session.update_save_vms_file_entry(
+                    vm_id=clclrunorder['vm_id'],
+                    new_state=eprfile)
+                delete_indices.append(idx)
+        # iterate in reversed order (otherwise IndexErrors) to delete objects
+        for idx in reversed(delete_indices):
+            self.logger.debug(("delete cloudclient_run_order object with run id %s"
+                % self.cloudclient_run_orders[idx]['run_id']))
+            del self.cloudclient_run_orders[idx]
 
     def generate_clclwrapper_run_id(self, vm_id):
         """

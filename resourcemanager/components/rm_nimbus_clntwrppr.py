@@ -56,8 +56,10 @@ class NimbusClientWrapper(object):
         else:
             self.logger.error("weird.. %s should not have existed"%workdir)
 
+        # save some constructor arguments
         self.workdir = workdir
         self.action = action
+        self.eprfile = eprfile
 
         # create userdata file from string. assume bytestring!!
         userdatafile = os.path.join(workdir,"userdata")
@@ -73,6 +75,8 @@ class NimbusClientWrapper(object):
 
         # to be populated
         self.subprocess = None
+        self.starttime = None
+        self.endtime = None
 
         # define command to be run
         self.cmdline = []
@@ -101,6 +105,7 @@ class NimbusClientWrapper(object):
             self.cmdline.append("--mdUserdata")
             self.cmdline.append(userdatafile)
             self.cmdline.append("--debug")
+            self.cmdline.append("--dryrun")
         self.logger.debug("assembled shell command: %s" % str(self.cmdline))
 
     def run(self):
@@ -108,14 +113,16 @@ class NimbusClientWrapper(object):
 
         timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
         stdouterr_file_name = "cloudclient_%s_%s.log"%(self.action,timestring)
-        stdouterr_file_path = os.path.join(self.workdir,stdouterr_file_name)
-        self.logger.debug("open subprocess logfile for writing: %s"%stdouterr_file_path)
-        stdouterr_file = open(stdouterr_file_path,'w')
+        self.stdouterr_file_path = os.path.join(self.workdir,stdouterr_file_name)
+        self.logger.debug(("open subprocess logfile for writing: %s"
+            % self.stdouterr_file_path))
+        self.stdouterr_file = open(self.stdouterr_file_path,'w')
 
         self.logger.debug("run subprocess with cwd %s" % self.workdir)
+        self.starttime = time.time()
         self.subprocess = subprocess.Popen(
             args=self.cmdline,
-            stdout=stdouterr_file,
+            stdout=self.stdouterr_file,
             stderr=subprocess.STDOUT,
             cwd=self.workdir,
             env=self.environment)
@@ -130,6 +137,32 @@ class NimbusClientWrapper(object):
             # self.logger.info("EPR written to %s" % self.epr_file)
         # else:
             # self.logger.critical("EPR file was not created")
+
+    def get_epr_file_on_success(self):
+        """
+        Return None if there is no subprocess or process is still running.
+        Return False if subprocess returned with other returncode than 0.
+        Else: success: Return path to EPR file.
+        """
+        if self.subprocess is not None:
+            returncode = self.subprocess.poll()
+            if returncode is not None:
+                # mark subprocess as finished
+                self.subprocess = None
+                self.stdouterr_file.close()
+                self.endtime = time.time()
+                executiontime = time.strftime("%H:%M:%S",
+                    time.gmtime(self.endtime-self.starttime))
+                self.logger.info(("subprocess ended after %s with returncode %s"
+                    % (executiontime,returncode)))
+                if returncode == 0:
+                    return self.eprfile
+                else:
+                    self.logger.error(("Nimbus Cloud Client subprocess ended with"
+                                        " an error. Check logfile for details: %s"
+                                        % self.stdouterr_file_path))
+                    return False
+        return None
 
     def set_up_env_vars(self):
         """

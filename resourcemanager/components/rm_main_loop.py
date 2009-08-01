@@ -86,7 +86,7 @@ class ResourceManagerMainLoop(threading.Thread):
         self.sqs_last_checked = time.time()
         self.sdb_last_checked = time.time()
         pause_loop = True
-        timeout = None
+        timeout = 1
 
         self.ui_msg(("Interactive mode started. Type"
             " 'help' to get a list of available commands."))
@@ -103,12 +103,10 @@ class ResourceManagerMainLoop(threading.Thread):
                     self.display_help_message()
                 elif uicmd == 'pause':
                     pause_loop = True
-                    timeout = None
                     self.ui_msg(("ResourceManagerMainLoop paused."
                         " Enter 'start' to go on."))
                 elif uicmd == 'start':
                     pause_loop = False
-                    timeout = 1
                     self.ui_msg("ResourceManagerMainLoop starts/continues.")
                 elif uicmd == 'poll_sqs':
                     self.ui_msg("Manual SQS monitoring data update triggered.")
@@ -125,10 +123,17 @@ class ResourceManagerMainLoop(threading.Thread):
             if not pause_loop:
                 self.do_sqs_sdb_update_if_necessary()
 
-            # something like..
-            # for cloud in nb cloud:
-                # for clclwrapper process in clclwrapper processes:
-                    # get returncode etc..
+            # check nimbus cloud subprocesses
+            self.check_nimbus_cloud_client_wrappers()
+
+    def check_nimbus_cloud_client_wrappers(self):
+        """
+        Check for running/returned subprocesses of nimbus cloud client.
+        This will e.g. trigger update of save.session.vms file if there was
+        success/error with starting some VM(s).
+        """
+        for nimbus_cloud in self.session.nimbus_clouds:
+            nimbus_cloud.check_nimbus_cloud_client_wrappers()
 
     def run_vms(self, cmd):
         """
@@ -166,6 +171,10 @@ class ResourceManagerMainLoop(threading.Thread):
                      " Nimbus cloud indices available: %s"%str(nbcldidcs)))
 
     def yes_no(self, question):
+        """
+        Ask `question`, read input until "yes" or "no" comes and return True,
+        False, respectively.
+        """
         while True: # wait for instring to be a known command
             self.ui_msg(question+" [yes/no]")
             uicmd = self.poll_command_queue(timeout=None) # infinite block
@@ -174,6 +183,10 @@ class ResourceManagerMainLoop(threading.Thread):
             if uicmd == 'no': return False
 
     def do_sqs_sdb_update_if_necessary(self):
+        """
+        Check current time against last checked times, using the user-given
+        poll intervals to decide if a new SQS / SDB check has to be performed.
+        """
         now = time.time()
         next_sqs_check_in = abs(min(0, (now -
             (self.sqs_last_checked + self.session.inicfg.sqs.monitor_queues_pollinterval))))
