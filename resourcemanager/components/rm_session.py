@@ -854,44 +854,50 @@ class NimbusCloud(object):
             os.mkdir(gpi_run_dir)
         gp_file_name = "cloud_%s_%s.proxy" % (self.cloud_index, timestring)
         grid_proxy_file_path = os.path.join(gpi_run_dir,gp_file_name)
+        # define log file for grid-proxy-init program
         gpi_stdouterr_file_path = os.path.join(gpi_run_dir,gp_file_name+".log")
         gpi_stdouterr_file = open(gpi_stdouterr_file_path,'w')
 
         # read private key password
         gp_priv_key_pwd = open(self.inicfg.privkey_pwd_file_path).read()
 
-        # build grid-proxy-init command
+        # build grid-proxy-init command (without password)
         gpi_executable = os.path.join(self.inicfg.nimbus_cloud_client_root,
             "bin/grid-proxy-init.sh")
-        gpi_shellcommand = ("/bin/sh %s -debug -pwstdin -cert %s "
-                            "-key %s -out %s -hours %s"
-                            % (gpi_executable,
-                               self.inicfg.certificate_file_path,
-                               self.inicfg.privkey_file_path,
-                               grid_proxy_file_path,
-                               self.inicfg.grid_proxy_hours))
+        gpi_shellcommand = (
+            "/bin/sh %s -debug -pwstdin -cert %s -key %s -out %s -hours %s"
+                % (gpi_executable,
+                self.inicfg.certificate_file_path,
+                self.inicfg.privkey_file_path,
+                grid_proxy_file_path,
+                self.inicfg.grid_proxy_hours))
         self.logger.debug("invoke 'echo PWD | %s as subprocess" % gpi_shellcommand)
 
+        # add password (stdin via echo) and execute command as subprocess
         gpi_shellcommand_pw = "echo %s | %s" % (gp_priv_key_pwd, gpi_shellcommand)
-        gpi_sp = subprocess.Popen(args=gpi_shellcommand_pw,
-                                  stdout=gpi_stdouterr_file,
-                                  stderr=subprocess.STDOUT,
-                                  cwd=gpi_run_dir,
-                                  shell=True)
+        gpi_sp = subprocess.Popen(
+            args=gpi_shellcommand_pw,
+            stdout=gpi_stdouterr_file,
+            stderr=subprocess.STDOUT,
+            cwd=gpi_run_dir,
+            shell=True)
         self.logger.debug("wait for subprocess to return...")
         returncode = gpi_sp.wait() # quite fast (1-5 seconds)
         self.logger.debug("grid-proxy-init returned with code %s" % returncode)
+        
+        # check output
         if returncode is not 0:
             self.logger.critical(("grid-proxy-init returncode was "
                                   "not 0. Check %s" % gpi_stdouterr_file_path))
         elif os.path.exists(grid_proxy_file_path):
             self.logger.info("valid grid proxy written to %s" % grid_proxy_file_path)
+            # the penultimate line in log file contains "valid until..." info
             infomessage = open(gpi_stdouterr_file_path).readlines()[-1]
             self.logger.info(infomessage)
             self.grid_proxy_file_path = grid_proxy_file_path
             self.grid_proxy_create_timestamp = time.time()
         else:
-            self.logger.critical("grid proxy file was not created")
+            self.logger.critical("grid proxy file was not created.")
 
 
 class ResourceManagerLogger:

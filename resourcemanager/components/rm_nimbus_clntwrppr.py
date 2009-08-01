@@ -33,7 +33,7 @@ class NimbusClientWrapper(object):
         """
         @params: ncc: Nimbus Cloud Config object
         """
-        self.logger = logging.getLogger("RM.MainLoop.NimbusClientWrapper")
+        self.logger = logging.getLogger("RM.MainLoop.NimbusCloud.%s.ClntWrppr" % nimbus_cloud_index)
         self.logger.debug("initialize NimbusClientWrapper object")
 
         self.nc = nimbus_cloud
@@ -42,9 +42,9 @@ class NimbusClientWrapper(object):
         self.nimbus_cloud_dir = "nimbus_cloud_%s" % self.nc.cloud_index
         self.vm_dir = os.path.join(session_run_dir,
                                    self.nimbus_cloud_dir,
-                                   "vm-%s" % self.vm_id)
-        self.epr_file = os.path.join(self.vm_dir,"vm-%s-epr.xml" % self.vm_id)
-        self.displayname = "cloud-%s-vm-%s" % (self.nc.cloud_index,self.vm_id)
+                                   self.vm_id)
+        self.epr_file = os.path.join(self.vm_dir,"%s-epr.xml" % self.vm_id)
+        self.displayname = "cloud-%s-%s" % (self.nc.cloud_index,self.vm_id)
 
     def set_up_cmdline_params(self):
         self.cmdline = []
@@ -98,9 +98,19 @@ class NimbusClientWrapper(object):
             self.logger.critical("EPR file was not created")
 
     def set_up_env_vars(self):
-        self.logger.debug(("set env variable 'X509_USER_PROXY' to %s"
-                            % self.nc.grid_proxy_file_path))
-        os.environ['X509_USER_PROXY'] = self.nc.grid_proxy_file_path
-        returncode = subprocess.call(["env > environment.log"],shell=True)
-        #print "envvarr test returncode" + str(returncode)
+        """
+        Set up environment variables needed vor Nimbus Cloud Client run.
+        
+        @return: True, if everything was okay. False otherwise.
+        """
+        if self.nc.grid_proxy_file_path is not None:
+            if os.path.exists(self.nc.grid_proxy_file_path):
+                self.logger.debug(("set env variable 'X509_USER_PROXY' to %s"
+                                    % self.nc.grid_proxy_file_path))
+                os.environ['X509_USER_PROXY'] = self.nc.grid_proxy_file_path
+                #returncode = subprocess.call(["env > environment.log"],shell=True)
+                #print "envvarr test returncode" + str(returncode)
+                return True
+        self.logger.error("grid proxy file path not defined / does not exist")
+        return False
 
