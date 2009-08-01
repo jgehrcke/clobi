@@ -32,6 +32,7 @@ import random
 import time
 import subprocess
 import shutil
+import base64
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
 from components.cfg_parse_strzip import SafeConfigParserStringZip
@@ -364,12 +365,20 @@ class Session(object):
     def generate_userdata(self, vm_id):
         """
         Generate userdata string for VM ID. This is the string delivered with
-        the request. Hence, it must be small (zipped) and encoded for reliable
+        the request. It must be small (evtl. zipped) and encoded for reliable
         transmission within Query URL (EC2) or SOAP message (Nimbus) -> Base64.
         """
-        
-        self.logger.info("generated userdata: '%s'" % vm_id)
-        return vm_id
+        config = SafeConfigParserStringZip()
+        config.add_section('userdata')
+        config.set('userdata','sessionid',str(self.session_id))
+        config.set('userdata','vmid',str(vm_id))
+        cfg = config.write_to_string()
+        zipcfg = config.write_to_zipped_string()
+        b64zipcfg = base64.b64encode(zipcfg)
+        self.logger.info("generated userdata: \n%s\n(length: %s)" % (cfg,len(cfg)))
+        self.logger.debug("zip(generated userdata): %s\n(length: %s)" % (repr(zipcfg),len(zipcfg)))
+        self.logger.debug("base64(zip(generated userdata)): %s\n(length: %s)" % (b64zipcfg,len(b64zipcfg)))
+        return b64zipcfg
 
     def append_save_vms_file(self, savestring):
         """
@@ -881,7 +890,7 @@ class NimbusCloud(object):
                 polldelay="5000")
             self.cloudclient_run_orders.append(cloudclient_run_order)
             #cloudclient_run_order['clclwrapper'].run()
-            
+
             # nimbus_cloud=self,
             # action="deploy",
             # vm_id="0001",
