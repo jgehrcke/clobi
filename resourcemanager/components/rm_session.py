@@ -33,6 +33,8 @@ import time
 import subprocess
 import shutil
 import base64
+import fileinput
+import tarfile
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
 from components.cfg_parse_strzip import SafeConfigParserStringZip
@@ -385,21 +387,47 @@ class Session(object):
         Append data to VMs save file. like: "vm_id;cloud;prepared".
         Backup before.
         """
-        backup_file(self.save_vms_file_path, self.save_backup_dir)
+        backup_file(self.save_vms_file_path, self.save_backup_dir, 50)
         fd = open(self.save_vms_file_path,'a')
         fd.write(savestring)
         fd.close()
         self.logger.debug(("appended to file %s : %s" %
                            (self.save_vms_file_path, savestring)))
 
-    def update_save_vms_file_entry(self, vm_id, new_state):
+    def update_save_vms_file_entry(self, vm_id, new_state, append = None):
         """
-        Update the line in the file that corresponds to vm_id. Record a new
+        Update the line in the file that corresponds to vm_id: Record a new
         state. Backup before!.
+        Assume data format: 'vm_id;cloudname;state;other;stuff'
+        Search line by vm_id. Modify field 3 by `new_state`. If `append`
+        data is available and a list, these items are appended to the line.
         """
-        backup_file(self.save_vms_file_path, self.save_backup_dir)
+        backup_file(self.save_vms_file_path, self.save_backup_dir, 50)
         self.logger.info(("update_save_vms_file_entry(): "
                           "VM ID: %s; new state: %s" % (vm_id, new_state)))
+        found = False
+        for line in fileinput.input(self.save_vms_file_path, inplace=1):
+            if line.startswith(vm_id):
+                # found the line! erase trailing whitespace (incl \n) and split!
+                found = True
+                words = line.rstrip().split(";")
+                if len(words) < 3:
+                    self.logger.error(("Line %d ('%s') in %s has less than three"
+                        " data fields" % (fileinput.filelineno(), line,
+                        self.save_vms_file_path)))
+                else:
+                    words[2] = new_state
+                    if isinstance(append,list):
+                        words.extend(append)
+                    # the line is modified. write it to file (incl. newline!)
+                    print ';'.join(words)
+            else:
+                # write this line to file as is (w/o additional \n from print)
+                print line,
+        fileinput.close()
+        if not found:
+            self.logger.error(("No line in %s started with %s" %
+                (self.save_vms_file_path, vm_id)))
 
     def generate_vm_ids(self, number):
         """
@@ -409,6 +437,7 @@ class Session(object):
         """
         self.logger.debug(("read last VM ID number from file "+
                             self.save_last_vm_id_file_path))
+        backup_file(self.save_last_vm_id_file_path, self.save_backup_dir, 50)
         try:
             last_vm_id_number = int(open(self.save_last_vm_id_file_path,'r').read())
             self.logger.debug("read last VM ID: %s" % last_vm_id_number)
@@ -882,6 +911,7 @@ class NimbusCloud(object):
             cloudclient_run_order = {}
             cloudclient_run_order['run_id'] = run_id
             cloudclient_run_order['vm_id'] = vm_id
+            eprfile=os.path.join(self.nb_clcl_main_work_dir,run_id,vm_id+".epr")
             cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
                 run_id = run_id,
                 gridproxyfile=self.grid_proxy_file_path,
@@ -889,7 +919,7 @@ class NimbusCloud(object):
                 action="deploy",
                 workdir=os.path.join(self.nb_clcl_main_work_dir,run_id),
                 userdata=self.session.generate_userdata(vm_id),
-                eprfile=os.path.join(self.nb_clcl_main_work_dir,run_id,vm_id+".epr"),
+                eprfile=eprfile,
                 sshfile=self.inicfg.ssh_pubkey_file_path,
                 metadatafile=self.inicfg.metadata_file_path,
                 serviceurl=self.inicfg.service_url,
@@ -900,6 +930,10 @@ class NimbusCloud(object):
                 polldelay="5000")
             self.cloudclient_run_orders.append(cloudclient_run_order)
             cloudclient_run_order['clclwrapper'].run()
+            self.session.update_save_vms_file_entry(
+                vm_id=vm_id,
+                new_state="run_ordered",
+                append=[eprfile])
 
             # nimbus_cloud=self,
             # action="deploy",
@@ -924,7 +958,7 @@ class NimbusCloud(object):
                     eprfile = "ERROR_in_client_run_%s" % clclrunorder['run_id']
                 self.session.update_save_vms_file_entry(
                     vm_id=clclrunorder['vm_id'],
-                    new_state=eprfile)
+                    new_state="started")
                 delete_indices.append(idx)
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):
@@ -1139,16 +1173,42 @@ class Tee(object):
         self.file.flush()
 
 
-def backup_file(file_path, backup_dir_path):
+def backup_file(file_path, backup_dir_path, archive_from = None):
     """
     Backup any file to any dir. Therefore, append the original filename with
     a timestring (if one file is backupped multiple times within one second,
     it's not worth to keep all backups; hence, 1 s resolution is okay here.)
+    If `archive_from` is set, all files get archived, if there are equal or more
+    than `archive_from`.
     """
     logger.debug("backup %s to %s ..." %(file_path, backup_dir_path))
+    timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+
+    # archive files, if there are at least `archive_from` files
+    if archive_from:
+        # assemble list of files to potentially archive
+        filename_list = []
+        for filedir in os.listdir(backup_dir_path):
+            if os.path.isfile(os.path.join(backup_dir_path,filedir)):
+                if not filedir.endswith("tar.gz"):
+                    filename_list.append(filedir)
+        logger.debug("found %s files to potentially archive" % len(filename_list))
+        # there are at least `archive_from` -> archive, delete
+        if len(filename_list) >= archive_from:
+            tarpath = os.path.join(backup_dir_path,
+                "multifilebckp_"+timestring+".tar.gz")
+            tar = tarfile.open(tarpath, "w:bz2")
+            for filename in filename_list:
+                tar.add(os.path.join(backup_dir_path,filename),filename)
+            tar.close()
+            logger.debug("created backup archive: %s" % tarpath)
+            for filename in filename_list:
+                os.remove(os.path.join(backup_dir_path,filename))
+            logger.debug("deleted %s backup files" % len(filename_list))
+
+    # do the backup job
     if os.path.exists(file_path) and os.path.exists(backup_dir_path):
         if os.path.isfile(file_path) and os.path.isdir(backup_dir_path):
-            timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
             filename = os.path.basename(file_path)
             bckp_filename = "%s_%s" % (filename, timestring)
             bckp_file_path = os.path.join(backup_dir_path, bckp_filename)
