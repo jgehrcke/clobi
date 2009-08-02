@@ -55,7 +55,8 @@ class SQSSession(object):
         self.inicfg = initial_session_config
         self.default_visibility_timeout = self.inicfg.sqs.default_visibility_timeout
         self.save_dir = session_save_dir
-        self.save_config_file_path = os.path.join(self.save_dir,"save.session.sqs.config")
+        self.save_config_file_path = os.path.join(self.save_dir,
+            "save.session.sqs.config")
 
         # init boto objects
         self.logger.debug("create SQS connection object")
@@ -85,7 +86,8 @@ class SQSSession(object):
         self.highest_priority = int(highest_priority)
         self.queues_priorities_names = {}
         for p in range(1,self.highest_priority+1):
-            self.queues_priorities_names[p] = "%s%s%s" % (self.prefix, self.suffix, p)
+            self.queues_priorities_names[p] = ("%s%s%s"
+                % (self.prefix, self.suffix, p))
         outputstring = '\n'.join(
                       ["         queue name for priority %s: %s" % (key,value)
                        for key, value in self.queues_priorities_names.items()])
@@ -93,15 +95,17 @@ class SQSSession(object):
                           + outputstring))
 
     def query_queues(self):
+        """
+        Perform a 'GetQueueAttributes' request on all session queues; only
+        receive approximate number of messages.
+        """
         self.logger.debug("get attributes for all SQS queues...")
         for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
-            attr = queue.get_attributes()
+            attr = queue.get_attributes(attribute="ApproximateNumberOfMessages")
             jobnbr = attr['ApproximateNumberOfMessages']
-            last_modified = attr['LastModifiedTimestamp']
             self.queue_jobnbrs_laststate[prio] = jobnbr
-            self.logger.info(("queue for priority %s:\napproximate nbr of jobs: %s"
-                " ; last modified: %s" % (prio, jobnbr, time.strftime("%Y%m%d-%H%M%S",
-                    time.localtime(float(last_modified))))))
+            self.logger.info(("queue for priority %s:\napprox nbr of jobs: %s"
+                 % (prio, jobnbr)))
 
     def create_queues(self, resume = False):
         """
@@ -123,16 +127,20 @@ class SQSSession(object):
         self.queues_priorities_botosqsqueueobjs = {}
         for prio, queue_name in self.queues_priorities_names.items():
             if resume:
-                self.logger.info("continue with queue %s for priority %s" % (queue_name,prio))
+                self.logger.info(("continue with queue %s for priority %s"
+                    % (queue_name,prio)))
             else:
-                self.logger.info("create queue %s for priority %s" % (queue_name,prio))
+                self.logger.info(("create queue %s for priority %s"
+                    % (queue_name,prio)))
             found = False
             for q in existing_queues:
                 if q.url.endswith(queue_name):
-                    self.logger.info(("SQS queue "+q.url+" for priority "+str(prio)
-                                     +" is already existing -> explore queue attributes..."))
+                    self.logger.info(("SQS queue %s for priority %s is already"
+                                      " existing -> explore queue attributes..."
+                                      % (q.url,prio)))
                     attr = q.get_attributes()
-                    attrstr = '\n'.join(["         %s: %s" % (k,v) for k,v in attr.items()])
+                    attrstr = '\n'.join([("         %s: %s" % (k,v))
+                        for k,v in attr.items()])
                     self.logger.info("attributes: \n"+attrstr)
                     if not resume:
                         self.logger.critical(("This *unique* SQS queue should "
@@ -144,7 +152,9 @@ class SQSSession(object):
                     self.queues_priorities_botosqsqueueobjs[prio] = q
                     break
             if not found:
-                q = self.sqsconn.create_queue(queue_name, int(self.default_visibility_timeout))
+                q = self.sqsconn.create_queue(
+                    queue_name,
+                    int(self.default_visibility_timeout))
                 self.queues_priorities_botosqsqueueobjs[prio] = q
             self.logger.info(("SQS queue for priority "+str(prio)
                              +" is now available: "+ str(q.url)))
@@ -159,7 +169,8 @@ class SQSSession(object):
         config.readfp(open(check_file(self.save_config_file_path)))
         self.prefix = config.get('SQS_sessionconfig', 'prefix')
         self.suffix = config.get('SQS_sessionconfig', 'suffix')
-        self.logger.info("loaded session SQS config from "+self.save_config_file_path + " .")
+        self.logger.info(("loaded session SQS config from %s ."
+            % self.save_config_file_path))
 
     def save_sqs_session_config_to_file(self):
         """
@@ -175,7 +186,8 @@ class SQSSession(object):
         fd = open(self.save_config_file_path,'w')
         config.write(fd)
         fd.close()
-        self.logger.info("session SQS config written to "+self.save_config_file_path + " .")
+        self.logger.info(("session SQS config written to %s ."
+            % self.save_config_file_path))
 
 
 class SimpleDBSession(object):
@@ -190,8 +202,8 @@ class SimpleDBSession(object):
         self.inicfg = initial_session_config
         self.initial_highest_priority = initial_session_config.sqs.initial_highest_priority
         self.save_dir = session_save_dir
-        self.save_config_file_path = os.path.join(self.save_dir,"save.session.sdb.config")
-
+        self.save_config_file_path = os.path.join(self.save_dir,
+            "save.session.sdb.config")
 
         # init attributes to be set in SDB
         self.highest_priority = None
@@ -240,9 +252,13 @@ class SimpleDBSession(object):
         needs.
         """
         self.logger.info("continue with SDB domain for session & VM data...")
-        self.boto_domainobj_session = self.create_domain(self.domain_name_session, resume=True)
+        self.boto_domainobj_session = self.create_domain(
+            self.domain_name_session,
+            resume=True)
         self.logger.info("continue with SDB domain for job data...")
-        self.boto_domainobj_jobs = self.create_domain(self.domain_name_jobs, resume=True)
+        self.boto_domainobj_jobs = self.create_domain(
+            self.domain_name_jobs,
+            resume=True)
 
     def create_domain(self,domainname, resume=False):
         """
@@ -258,7 +274,8 @@ class SimpleDBSession(object):
         self.logger.debug("look up SDB domain "+domainname+" ...")
         domainobj = self.sdbconn.lookup(domainname)
         if domainobj is None:
-            self.logger.info("SDB domain "+domainname+" seems not to exist -> create...")
+            self.logger.info(("SDB domain %s seems not to exist -> create..."
+                % domainname))
             domainobj = self.sdbconn.create_domain(domainname)
         else:
             self.logger.info(("SDB domain "+domainname
@@ -288,7 +305,8 @@ class SimpleDBSession(object):
         """
         item = self.boto_domainobj_session.get_item('session_props')
         self.highest_priority = item['HighestPriority']
-        self.logger.info("got HighestPriority from SDB: "+str(self.highest_priority))
+        self.logger.info(("got HighestPriority from SDB: %s"
+            % self.highest_priority)
 
     def create_session_props_item(self):
         """
@@ -296,7 +314,8 @@ class SimpleDBSession(object):
         (session & VM data). The item contains e.g. the HighestPriority flag.
         """
         item = self.boto_domainobj_session.new_item('session_props')
-        self.logger.info("setting HighestPriority to "+str(self.initial_highest_priority))
+        self.logger.info(("setting HighestPriority to %s
+            % self.initial_highest_priority))
         item['HighestPriority'] = self.initial_highest_priority
         item.save()
 
@@ -306,11 +325,16 @@ class SimpleDBSession(object):
         It actually could be generated from the session ID. But this method is
         here for completeness and potential future use.
         """
-        self.logger.info("load session SDB config from "+self.save_config_file_path + "...")
+        self.logger.info(("load session SDB config from %s ..."
+            % self.save_config_file_path))
         config = ConfigParser.SafeConfigParser()
         config.readfp(open(check_file(self.save_config_file_path)))
-        self.domain_name_session = config.get('SDB_sessionconfig', 'domain_name_session')
-        self.domain_name_jobs = config.get('SDB_sessionconfig', 'domain_name_jobs')
+        self.domain_name_session = config.get(
+            'SDB_sessionconfig',
+            'domain_name_session')
+        self.domain_name_jobs = config.get(
+            'SDB_sessionconfig',
+            'domain_name_jobs')
 
     def save_sdb_session_config_to_file(self):
         """
@@ -321,12 +345,15 @@ class SimpleDBSession(object):
         """
         config = ConfigParser.SafeConfigParser()
         config.add_section('SDB_sessionconfig')
-        config.set('SDB_sessionconfig', 'domain_name_session', self.domain_name_session)
-        config.set('SDB_sessionconfig', 'domain_name_jobs', self.domain_name_jobs)
+        config.set('SDB_sessionconfig', 'domain_name_session',
+            self.domain_name_session)
+        config.set('SDB_sessionconfig', 'domain_name_jobs',
+            self.domain_name_jobs)
         fd = open(self.save_config_file_path,'w')
         config.write(fd)
         fd.close()
-        self.logger.info("session SDB config written to "+self.save_config_file_path)
+        self.logger.info(("session SDB config written to %s ."
+            % self.save_config_file_path))
 
 
 class Session(object):
@@ -349,9 +376,13 @@ class Session(object):
         self.run_dir = session_dirs['session_run_dir']
         self.log_dir = session_dirs['session_log_dir']
         self.save_dir = session_dirs['session_save_dir']
-        self.save_config_file_path = os.path.join(self.save_dir,"save.session.config")
+        self.save_config_file_path = os.path.join(
+            self.save_dir,
+            "save.session.config")
         self.save_vms_file_path = os.path.join(self.save_dir,"save.session.vms")
-        self.save_last_vm_id_file_path = os.path.join(self.save_dir,"save.session.last_vm_id")
+        self.save_last_vm_id_file_path = os.path.join(
+            self.save_dir,
+            "save.session.last_vm_id")
         self.save_backup_dir = os.path.join(self.save_dir,"backup")
         if not os.path.exists(self.save_backup_dir):
             os.makedirs(self.save_backup_dir)
@@ -377,9 +408,12 @@ class Session(object):
         cfg = config.write_to_string()
         zipcfg = config.write_to_zipped_string()
         b64zipcfg = base64.b64encode(zipcfg)
-        self.logger.info("generated userdata: \n%s\n(length: %s)" % (cfg,len(cfg)))
-        self.logger.debug("zip(generated userdata): %s\n(length: %s)" % (repr(zipcfg),len(zipcfg)))
-        self.logger.debug("base64(zip(generated userdata)): %s\n(length: %s)" % (b64zipcfg,len(b64zipcfg)))
+        self.logger.info(("generated userdata: \n%s\n(length: %s)"
+            % (cfg,len(cfg))))
+        self.logger.debug(("zip(generated userdata): %s\n(length: %s)"
+            % (repr(zipcfg),len(zipcfg))))
+        self.logger.debug(("base64(zip(generated userdata)): %s\n(length: %s)"
+            % (b64zipcfg,len(b64zipcfg))))
         return b64zipcfg
 
     def append_save_vms_file(self, savestring):
@@ -443,7 +477,7 @@ class Session(object):
             self.logger.debug("read last VM ID: %s" % last_vm_id_number)
         except IOError:
             if self.resume:
-                self.logger.critical(("session in resume mode and IOError on last "
+                self.logger.critical(("session in resume mode and IOError on last"
                                       " VM ID file. Smells bad; exit!"))
                 sys.exit(1)
             else:
@@ -473,7 +507,8 @@ class Session(object):
     def run_vms_nimbus(self, idx, nbr):
         for nbcloud in self.nimbus_clouds:
             if nbcloud.cloud_index == idx:
-                self.logger.info("order to run %s VMs on Nimbus Cloud %s" % (nbr,idx))
+                self.logger.info(("order to run %s VMs on Nimbus Cloud %s"
+                    % (nbr,idx)))
                 nbcloud.run_vms(number=nbr)
                 return
 
@@ -608,13 +643,15 @@ class Session(object):
         fd = open(self.save_config_file_path,'w')
         config.write(fd)
         fd.close()
-        self.logger.info("extended session config written to "+self.save_config_file_path)
+        self.logger.info(("extended session config written to %s ."
+            % self.save_config_file_path))
 
     def load_extended_config_from_file(self):
         """
         Load session information that is not provided by initial session config
         """
-        self.logger.info("load extended session config from "+self.save_config_file_path + "...")
+        self.logger.info(("load extended session config from %s..."
+            % self.save_config_file_path))
         config = ConfigParser.SafeConfigParser()
         config.readfp(open(check_file(self.save_config_file_path)))
         self.session_id = config.get('extended_sessionconfig', 'session_id')
@@ -694,19 +731,29 @@ class InitialSessionConfig(object):
         self.aws.secretkey = session_config.get('AWS', 'aws_secret_key')
         self.aws.accesskey = session_config.get('AWS', 'aws_access_key')
 
-        self.sdb.monitor_vms_pollinterval = session_config.getfloat('SimpleDB',
-                                                'monitor_VMs_pollinterval')
-        self.sqs.monitor_queues_pollinterval = session_config.getfloat('SQS',
-                                                'monitor_queues_pollinterval')
-        self.sqs.initial_highest_priority = session_config.getint('SQS',
-                                                'initial_highest_priority')
-        self.sqs.default_visibility_timeout = session_config.getint('SQS',
-                                                'default_visibility_timeout')
+        self.sdb.monitor_vms_pollinterval = session_config.getfloat(
+            'SimpleDB',
+            'monitor_VMs_pollinterval')
+        self.sqs.monitor_queues_pollinterval = session_config.getfloat(
+            'SQS',
+            'monitor_queues_pollinterval')
+        self.sqs.initial_highest_priority = session_config.getint(
+            'SQS',
+            'initial_highest_priority')
+        self.sqs.default_visibility_timeout = session_config.getint(
+            'SQS',
+            'default_visibility_timeout')
         self.ec2.use = False
         if session_config.has_section('EC2'):
-            self.ec2.instancetype = session_config.get('EC2', 'instancetype').decode('UTF-8')
-            self.ec2.ami_id = session_config.get('EC2', 'ami_id').decode('UTF-8')
-            self.ec2.max_instances = session_config.getint('EC2', 'max_instances')
+            self.ec2.instancetype = session_config.get(
+                'EC2',
+                'instancetype').decode('UTF-8')
+            self.ec2.ami_id = session_config.get(
+                'EC2',
+                'ami_id').decode('UTF-8')
+            self.ec2.max_instances = session_config.getint(
+                'EC2',
+                'max_instances')
             self.ec2.use = True
 
         self.nimbus.use = False
@@ -738,10 +785,11 @@ class InitialSessionConfig(object):
 
     def print_parsed_session_config_file(self):
         if self.session_configparser_object is not None:
-            print  "\nconfig read from " + self.session_config_file_abspath + " :"
+            print  "\nconfig read from " +self.session_config_file_abspath+ " :"
             self.session_configparser_object.write(sys.stdout)
         else:
-            print "\n config from " + self.session_config_file_abspath + " not parsed or defective"
+            print ("\n config from %s not parsed or defective"
+                % self.session_config_file_abspath)
 
 
 class InitialNimbusCloudConfig(object):
@@ -805,17 +853,23 @@ class InitialNimbusCloudConfig(object):
         self.nimbus_cloud_client_root = check_dir(os.path.join(
             os.path.dirname(self.nimbus_config_file_abspath),
             nimbus_config.get('nimbuscloudconfig', 'nimbus_cloud_client_root')))
-        self.grid_proxy_hours = nimbus_config.getint('nimbuscloudconfig', 'grid_proxy_hours')
-        self.max_instances = nimbus_config.getint('nimbuscloudconfig', 'max_instances')
+        self.grid_proxy_hours = nimbus_config.getint(
+            'nimbuscloudconfig',
+            'grid_proxy_hours')
+        self.max_instances = nimbus_config.getint(
+            'nimbuscloudconfig',
+            'max_instances')
         self.name = nimbus_config.get('nimbuscloudconfig', 'name')[:8]
         self.service_url = nimbus_config.get('nimbuscloudconfig', 'service_url')
-        self.service_identity = nimbus_config.get('nimbuscloudconfig', 'service_identity')
+        self.service_identity = nimbus_config.get(
+            'nimbuscloudconfig',
+            'service_identity')
 
         self.nimbus_configparser_object = nimbus_config
 
     def print_parsed_cloud_config_file(self):
         if self.nimbus_configparser_object is not None:
-            print  "\nconfig read from " + self.nimbus_config_file_abspath + " :"
+            print  "\nconfig read from " +self.nimbus_config_file_abspath+ " :"
             self.nimbus_configparser_object.write(sys.stdout)
         else:
             print ("\n config from " + self.nimbus_config_file_abspath
@@ -851,8 +905,8 @@ class NimbusCloud(object):
                             comparision with other Nimbus clouds. The cloud with
                             index 1 is the first one used.
         """
-
-        self.logger = logging.getLogger("RM.MainLoop.NimbusCloud.%s" % nimbus_cloud_index)
+        self.logger = logging.getLogger(("RM.MainLoop.NimbusCloud.%s"
+            % nimbus_cloud_index))
         self.logger.debug("initialize NimbusCloud object")
 
         # constructor arguments
@@ -915,7 +969,9 @@ class NimbusCloud(object):
             cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
                 run_id = run_id,
                 gridproxyfile=self.grid_proxy_file_path,
-                exe=os.path.join(self.inicfg.nimbus_cloud_client_root, "lib/workspace.sh"),
+                exe=os.path.join(
+                    self.inicfg.nimbus_cloud_client_root,
+                    "lib/workspace.sh"),
                 action="deploy",
                 workdir=os.path.join(self.nb_clcl_main_work_dir,run_id),
                 userdata=self.session.generate_userdata(vm_id),
@@ -980,10 +1036,10 @@ class NimbusCloud(object):
 
     def load_initial_nimbus_cloud_config(self):
         self.logger.info(("load initial config for Nimbus cloud %s from %s"
-                           % (self.cloud_index, self.nimbus_config_file_abspath)))
+            % (self.cloud_index, self.nimbus_config_file_abspath)))
         self.inicfg = InitialNimbusCloudConfig(self.nimbus_config_file_abspath)
         self.logger.debug(("initial config for Nimbus cloud %s: %s"
-                            % (self.cloud_index, self.inicfg.print_cloud_config())))
+            % (self.cloud_index, self.inicfg.print_cloud_config())))
 
     def check_cloud_client_exists(self):
         """
@@ -992,10 +1048,12 @@ class NimbusCloud(object):
         """
         self.logger.debug("check if cloud client for Nimbus cloud %s exists under %s"
             % (self.cloud_index, self.inicfg.nimbus_cloud_client_root))
-        check_file(os.path.join(self.inicfg.nimbus_cloud_client_root,
-                                "lib/workspace.sh"))
-        check_file(os.path.join(self.inicfg.nimbus_cloud_client_root,
-                                "bin/grid-proxy-init.sh"))
+        check_file(os.path.join(
+            self.inicfg.nimbus_cloud_client_root,
+            "lib/workspace.sh"))
+        check_file(os.path.join(
+            self.inicfg.nimbus_cloud_client_root,
+            "bin/grid-proxy-init.sh"))
 
     def expires_grid_proxy(self):
         hour_diff = abs(time.time()-self.grid_proxy_create_timestamp)/3600
@@ -1052,7 +1110,8 @@ class NimbusCloud(object):
             self.logger.critical(("grid-proxy-init returncode was "
                                   "not 0. Check %s" % gpi_stdouterr_file_path))
         elif os.path.exists(grid_proxy_file_path):
-            self.logger.info("valid grid proxy written to %s" % grid_proxy_file_path)
+            self.logger.info(("valid grid proxy written to %s"
+                % grid_proxy_file_path))
             # the penultimate line in log file contains "valid until..." info
             infomessage = open(gpi_stdouterr_file_path).readlines()[-1]
             self.logger.info(infomessage)
@@ -1073,8 +1132,8 @@ class ResourceManagerLogger:
 
         # create log filenames (with prefix from time)
         log_filename_prefix = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        rm_log_file_path = os.path.join(logdir,log_filename_prefix + "_RM.log")
-        boto_log_file_path = os.path.join(logdir,log_filename_prefix + "_boto.log")
+        rm_log_file_path = os.path.join(logdir,log_filename_prefix+"_RM.log")
+        boto_log_file_path = os.path.join(logdir,log_filename_prefix+"_boto.log")
 
         # set up main/root logger
         self.logger = logging.getLogger()
@@ -1083,13 +1142,15 @@ class ResourceManagerLogger:
         # file handler for a real file with level DEBUG
         self.fh = logging.FileHandler(rm_log_file_path, encoding="UTF-8")
         self.fh.setLevel(logging.DEBUG)
-        self.formatter_file = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+        self.formatter_file = logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
         self.fh.setFormatter(self.formatter_file)
 
         # # "console" handler (to stderr by default) with level ERROR
         # self.ch = logging.StreamHandler()
         # self.ch.setLevel(logging.ERROR)
-        # self.formatter_console = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+        # self.formatter_console = logging.Formatter(
+        #    "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
         # self.ch.setFormatter(self.formatter_console)
 
         # pipe handler to GUI
@@ -1192,7 +1253,8 @@ def backup_file(file_path, backup_dir_path, archive_from = None):
             if os.path.isfile(os.path.join(backup_dir_path,filedir)):
                 if not filedir.endswith("tar.gz"):
                     filename_list.append(filedir)
-        logger.debug("found %s files to potentially archive" % len(filename_list))
+        logger.debug(("found %s files to potentially archive"
+            % len(filename_list)))
         # there are at least `archive_from` -> archive, delete
         if len(filename_list) >= archive_from:
             tarpath = os.path.join(backup_dir_path,
@@ -1214,11 +1276,11 @@ def backup_file(file_path, backup_dir_path, archive_from = None):
             bckp_file_path = os.path.join(backup_dir_path, bckp_filename)
             shutil.copy(file_path, bckp_file_path)
         else:
-            logger.debug(("%s not file and/or %s not dir" %
-                                (file_path, backup_dir_path)))
+            logger.debug(("%s not file and/or %s not dir"
+                % (file_path, backup_dir_path)))
     else:
-        logger.debug(("%s and/or %s does not exist" %
-                            (file_path, backup_dir_path)))
+        logger.debug(("%s and/or %s does not exist"
+            % (file_path, backup_dir_path)))
 
 
 def check_file(file):
