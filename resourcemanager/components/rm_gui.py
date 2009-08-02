@@ -228,7 +228,7 @@ class ResourceManagerGUI(object):
         Log to file that there was a message from worker thread; display msg
         on UI.
         """
-        self.logger.debug("interactive mode data received from worker thread: %s" % msg)
+        self.logger.debug("rcvd to display: %s" % msg)
         txt = urwid.AttrWrap(urwid.Text(('cmdresponse', msg)),'cmdresponse')
         self.listbox_extend([txt])
 
