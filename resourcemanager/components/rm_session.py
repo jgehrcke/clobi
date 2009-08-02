@@ -451,8 +451,12 @@ class Session(object):
                         self.save_vms_file_path)))
                 else:
                     words[2] = new_state
-                    if isinstance(append,list):
-                        words.extend(append)
+                    if append:
+                        if isinstance(append,list):
+                            words.extend(append)
+                        else:
+                            self.logger.error(("append (%s) is no list"
+                                %repr(append)))
                     # the line is modified. write it to file (incl. newline!)
                     print ';'.join(words)
             else:
@@ -502,7 +506,8 @@ class Session(object):
         return vm_id_list
 
     def run_vms_ec2(self, nbr):
-        self.logger.info("instructed to run %s VMs on EC2" % nbr)
+        self.logger.info("order to run %s VMs on EC2" % nbr)
+        self.ec2.run_vms(number=nbr)
 
     def run_vms_nimbus(self, idx, nbr):
         for nbcloud in self.nimbus_clouds:
@@ -531,8 +536,10 @@ class Session(object):
             resume_session=self.resume)
         self.logger.debug(("initial session config: \n"
                         + isc.print_initial_session_config()))
+        self.inicfg = isc
         if isc.ec2.use:
             self.logger.info("EC2 is used within this session.")
+            self.ec2 = EC2(session=self)
         if isc.nimbus.use:
             self.logger.info("Nimbus is used within this session.")
             self.nimbus_clouds = []
@@ -544,7 +551,6 @@ class Session(object):
                 nimbus_cloud.load_initial_nimbus_cloud_config()
                 nimbus_cloud.check_cloud_client_exists()
                 self.nimbus_clouds.append(nimbus_cloud)
-        self.inicfg = isc
 
     def finish_setup(self):
         """
@@ -564,12 +570,12 @@ class Session(object):
         else:
             self.logger.info("new session: set up missing stuff...")
             self.generate_session_id()
-            self.set_up_simple_db_from_scratch()
-            self.set_up_sqs_from_scratch()
-            self.logger.info("save all generated config to files...")
-            self.save_extended_config_to_file()
-            self.sdb_session.save_sdb_session_config_to_file()
-            self.sqs_session.save_sqs_session_config_to_file()
+            #self.set_up_simple_db_from_scratch()
+            #self.set_up_sqs_from_scratch()
+            #self.logger.info("save all generated config to files...")
+            #self.save_extended_config_to_file()
+            #self.sdb_session.save_sdb_session_config_to_file()
+            #self.sqs_session.save_sqs_session_config_to_file()
         self.logger.info("create grid proxy for each Nimbus cloud...")
         for nimbus_cloud in self.nimbus_clouds:
             nimbus_cloud.grid_proxy_init()
@@ -945,6 +951,8 @@ class NimbusCloud(object):
                 - modify general userdata: append VM ID
                 - create cloudclient_run_order dict
                 - create NimbusClientWrapper instance
+                - run subprocess
+                - update state with run_ordered
         """
         # grab VM IDs and add data to save.session.vms
         self.logger.debug("request %s VM ID(s)" % number)
@@ -1121,7 +1129,69 @@ class NimbusCloud(object):
             self.logger.critical("grid proxy file was not created.")
 
 
-class ResourceManagerLogger:
+class EC2(object):
+    """
+    Represents EC2 within a Resource Manager session.
+    """
+    def __init__(self, session):
+        self.logger = logging.getLogger("RM.MainLoop.EC2")
+        self.logger.debug("initialize EC2 object")
+
+        self.session = session
+        self.instancetype = self.session.inicfg.ec2.instancetype
+        self.ami_id = self.session.inicfg.ec2.ami_id
+        self.ec2conn = boto.connect_ec2(self.session.inicfg.aws.accesskey,
+                                        self.session.inicfg.aws.secretkey)
+
+        # this is a list containing run_order dicts
+        self.ec2_run_orders = []
+
+    def run_vms(self, number):
+        """
+        1) At first, grab VM ID's from our instructor, the session instance. It
+        will give us some unique (within this session) VM IDs for the new VMs
+        to start.
+        2) Save "prepared" state to sessions VM save file.
+        4) Per request only *ONE* VM to be able to deliver individual user-data
+           containing the VM ID for each VM.
+            -->Do for each VM ID:
+                - modify general userdata: append VM ID
+                - create ec2_run_order dict
+                - send request, save reservation object in ec2_run_order dict
+                - update  sessions VM save file with "run_ordered"
+        """
+
+        # grab VM IDs and add data to save.session.vms
+        self.logger.debug("request %s VM ID(s)" % number)
+        vm_ids=self.session.generate_vm_ids(number)
+        self.logger.info("generated VM ID(s): %s " % ', '.join(vm_ids))
+        savedata = [vm_id+";EC2;prepared" for vm_id in vm_ids]
+        savedata = '\n'.join(savedata) + '\n'
+        self.session.append_save_vms_file(savedata)
+
+        # for each VM ID generate cloud client run ID and run the stuff!
+        for vm_id in vm_ids:
+            ec2_run_order = {}
+            ec2_run_order['vm_id'] = vm_id
+            try:
+                ec2_run_order['boto_rsrvtn_obj'] = self.ec2conn.run_instances(
+                   min_count=1,
+                   max_count=1,
+                   user_data=self.session.generate_userdata(vm_id),
+                   image_id=self.ami_id,
+                   instance_type=self.instancetype)
+            except: 
+               import traceback
+               traceback.print_exc()
+
+            self.ec2_run_orders.append(ec2_run_order)
+            self.session.update_save_vms_file_entry(
+                vm_id=vm_id,
+                new_state="run_ordered",
+                append=["some_reservation_id"])
+                #append=ec2_run_order['boto_reservation_object'].id)
+
+class ResourceManagerLogger(object):
     """
     Configuration class for logging with the logging module.
     """
