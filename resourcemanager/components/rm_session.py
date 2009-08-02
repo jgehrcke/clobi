@@ -101,7 +101,7 @@ class SQSSession(object):
         """
         self.logger.debug("get attributes for all SQS queues...")
         for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
-            attr = queue.get_attributes(attribute="ApproximateNumberOfMessages")
+            attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
             jobnbr = attr['ApproximateNumberOfMessages']
             self.queue_jobnbrs_laststate[prio] = jobnbr
             self.logger.info(("queue for priority %s:\napprox nbr of jobs: %s"
@@ -306,7 +306,7 @@ class SimpleDBSession(object):
         item = self.boto_domainobj_session.get_item('session_props')
         self.highest_priority = item['HighestPriority']
         self.logger.info(("got HighestPriority from SDB: %s"
-            % self.highest_priority)
+            % self.highest_priority))
 
     def create_session_props_item(self):
         """
@@ -314,7 +314,7 @@ class SimpleDBSession(object):
         (session & VM data). The item contains e.g. the HighestPriority flag.
         """
         item = self.boto_domainobj_session.new_item('session_props')
-        self.logger.info(("setting HighestPriority to %s
+        self.logger.info(("setting HighestPriority to %s"
             % self.initial_highest_priority))
         item['HighestPriority'] = self.initial_highest_priority
         item.save()
