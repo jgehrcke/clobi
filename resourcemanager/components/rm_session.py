@@ -698,6 +698,7 @@ class InitialSessionConfig(object):
         self.ec2.instancetype = None
         self.ec2.ami_id = None
         self.ec2.max_instances = None
+        self.ec2.instance_state_pollinterval = None
         self.sdb = Object()
         self.sdb.monitor_vms_pollinterval = None
         self.sqs = Object()
@@ -718,6 +719,7 @@ class InitialSessionConfig(object):
         + "\n* ec2.instancetype: " + self.ec2.instancetype
         + "\n* ec2.ami_id: " + self.ec2.ami_id
         + "\n* ec2.max_instances: " + unicode(self.ec2.max_instances)
+        + "\n* ec2.instance_state_pollinterval: " + unicode(self.ec2.instance_state_pollinterval)
         + "\n* sdb.monitor_vms_pollinterval: " + unicode(self.sdb.monitor_vms_pollinterval)
         + "\n* sqs.monitor_queues_pollinterval: " + unicode(self.sqs.monitor_queues_pollinterval)
         + "\n* sqs.initial_highest_priority: " + unicode(self.sqs.initial_highest_priority)
@@ -760,6 +762,9 @@ class InitialSessionConfig(object):
             self.ec2.max_instances = session_config.getint(
                 'EC2',
                 'max_instances')
+            self.ec2.instance_state_pollinterval = session_config.getint(
+                'EC2',
+                'instance_state_pollinterval')
             self.ec2.use = True
 
         self.nimbus.use = False
@@ -952,7 +957,7 @@ class NimbusCloud(object):
                 - create cloudclient_run_order dict
                 - create NimbusClientWrapper instance
                 - run subprocess
-                - update state with run_ordered
+                - update state with 'run_ordered' and EPR file
         """
         # grab VM IDs and add data to save.session.vms
         self.logger.debug("request %s VM ID(s)" % number)
@@ -1011,18 +1016,23 @@ class NimbusCloud(object):
     def check_nimbus_cloud_client_wrappers(self):
         """
         Check state of Cloud Client runs. Update save.session.vms file with
-        success or error information. Delete cloutclient_run_order list item
-        after analysis.
+        success or error information:
+        on success: new state 'started'
+        on error (returncode != 0): new state 'error'
+        Delete cloutclient_run_order list item after analysis (only if success
+        or error; do nothing of subprocess is not returned).
         """
         delete_indices = []
         for idx, clclrunorder in enumerate(self.cloudclient_run_orders):
             eprfile = clclrunorder['clclwrapper'].get_epr_file_on_success()
             if eprfile is not None:                     # subprocess ended
                 if not eprfile:                         # returncode != 0
-                    eprfile = "ERROR_in_client_run_%s" % clclrunorder['run_id']
+                    new_state = 'error'
+                else:
+                    new_state = 'started'
                 self.session.update_save_vms_file_entry(
                     vm_id=clclrunorder['vm_id'],
-                    new_state="started")
+                    new_state=new_state)
                 delete_indices.append(idx)
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):
@@ -1158,7 +1168,7 @@ class EC2(object):
                 - modify general userdata: append VM ID
                 - create ec2_run_order dict
                 - send request, save reservation object in ec2_run_order dict
-                - update  sessions VM save file with "run_ordered"
+                - update  sessions VM save file with "run_ordered" and res ID
         """
 
         # grab VM IDs and add data to save.session.vms
@@ -1174,22 +1184,66 @@ class EC2(object):
             ec2_run_order = {}
             ec2_run_order['vm_id'] = vm_id
             try:
+                self.logger.info(("send EC2 request: run 1 instance of type %s"
+                    " of image %s with specific user-data"
+                    % (self.instancetype,self.ami_id)))
                 ec2_run_order['boto_rsrvtn_obj'] = self.ec2conn.run_instances(
-                   min_count=1,
-                   max_count=1,
-                   user_data=self.session.generate_userdata(vm_id),
-                   image_id=self.ami_id,
-                   instance_type=self.instancetype)
-            except: 
-               import traceback
-               traceback.print_exc()
+                    min_count=1,
+                    max_count=1,
+                    user_data=self.session.generate_userdata(vm_id),
+                    image_id=self.ami_id,
+                    instance_type=self.instancetype)
+            except:
+                import traceback
+                traceback.print_exc()
 
             self.ec2_run_orders.append(ec2_run_order)
             self.session.update_save_vms_file_entry(
                 vm_id=vm_id,
                 new_state="run_ordered",
-                append=["some_reservation_id"])
-                #append=ec2_run_order['boto_reservation_object'].id)
+                append=[ec2_run_order['boto_rsrvtn_obj'].id])
+                #append=["some_reservation_id"])
+
+    def check_runinstances_request_states(self):
+        """
+        Check state of instances that have just beeen started up.
+        There are 4 states (http://docs.amazonwebservices.com/AWSEC2/2009-04-04/
+        APIReference/ApiReference-ItemType-InstanceStateType.html)
+        'pending' -> do nothing
+        'running' -> the machine is starting up -> new state 'started'
+        'terminated' and 'shutting-down' -> new state 'error'
+        Delete ec2_run_order list item after success/error detection.
+        """
+        delete_indices = []
+        for idx, ec2_run_order in enumerate(self.ec2_run_orders):
+            instanceobj = ec2_run_order['boto_rsrvtn_obj'].instances[0]
+            instanceid = instanceobj.id
+            try:
+                self.logger.debug(("query EC2 for state of %s ..." %instanceid))
+                inststate = instanceobj.update()
+                self.logger.info(("instance %s has state: %s"
+                    % (instanceid, inststate)))
+            except:
+                inststate = None
+                import traceback
+                traceback.print_exc()
+            if inststate:
+                if inststate != 'pending':
+                    if inststate == 'running':
+                        new_state = 'started'
+                    if inststate == 'terminated' or inststate == 'shutting-down':
+                        new_state = 'error'
+                    self.session.update_save_vms_file_entry(
+                        vm_id=ec2_run_order['vm_id'],
+                        new_state=new_state,
+                        append=[instanceid])
+                    delete_indices.append(idx)
+        # iterate in reversed order (otherwise IndexErrors) to delete objects
+        for idx in reversed(delete_indices):
+            self.logger.debug(("delete ec2_run_order obj with reservation id %s"
+                % self.ec2_run_orders[idx]['boto_rsrvtn_obj'].id))
+            del self.ec2_run_orders[idx]
+
 
 class ResourceManagerLogger(object):
     """

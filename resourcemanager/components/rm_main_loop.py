@@ -85,6 +85,8 @@ class ResourceManagerMainLoop(threading.Thread):
         # init some needed variables
         self.sqs_last_checked = time.time()
         self.sdb_last_checked = time.time()
+        self.ec2_inststates_last_checked = time.time()
+
         pause_loop = True
         timeout = 1
 
@@ -124,13 +126,38 @@ class ResourceManagerMainLoop(threading.Thread):
                 self.do_sqs_sdb_update_if_necessary()
 
             # check nimbus cloud subprocesses
+            # this is done each main loop turn, it's not logged. (only success/
+            # error events are logged, but not when subprocesses didn't return)
             self.check_nimbus_cloud_client_wrappers()
+
+            # check EC2 instances that were requested to start recently
+            # do it based on self.session.inicfg.ec2.instance_state_pollinterval
+            self.check_runinstances_request_states_if_necessary()
+
+    def check_runinstances_request_states_if_necessary(self):
+        """
+        Check states of EC2 instances that were requested to start recently.
+        This updates save.session.vms about success/error while starting.
+        After this information is gathered, the corresponding boto ec2
+        reservation objects will be deleted (information about VMs/instances
+        in save.session.vms is the only information left).
+        """
+        now = time.time()
+        lastchecked = self.ec2_inststates_last_checked
+        interval = self.session.inicfg.ec2.instance_state_pollinterval
+        next_state_check_in = abs(min(0, (now - (lastchecked + interval))))
+        if next_state_check_in == 0:
+            self.session.ec2.check_runinstances_request_states()
+            self.ec2_inststates_last_checked = time.time()
 
     def check_nimbus_cloud_client_wrappers(self):
         """
         Check for running/returned subprocesses of nimbus cloud client.
         This will e.g. trigger update of save.session.vms file if there was
-        success/error with starting some VM(s).
+        success/error with starting some VM(s). After this information is
+        gathered, the corresponding Nimbus Cloud Client Wrapper objects will be
+        deleted (information about VMs in save.session.vms is the only
+        information left).
         """
         for nimbus_cloud in self.session.nimbus_clouds:
             nimbus_cloud.check_nimbus_cloud_client_wrappers()
