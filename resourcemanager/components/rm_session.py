@@ -422,6 +422,75 @@ class Session(object):
             % (b64zipcfg,len(b64zipcfg))))
         return b64zipcfg
 
+    def nbx(self, string):
+        """
+        Analyse string if it has the form 'nbX'.
+        Return valid Nimbus Cloud Index X or False. Therefore, it needs a list
+        `nbcldidcs` of valid Nimbus Cloud Indices.
+        """
+        parts = string.lower().split('nb')
+        if len(parts) == 2:
+            if parts[1].isdigit():
+                if int(parts[1]) in self.nimbus_cloud_indices():
+                    return int(parts[1])
+        return False
+
+    def get_vm_info_from_file(self,vm_id):
+        """
+        Parse save.session.vms file and look for vm id.
+        If found, return a normed data dictionary.
+        If not found, return False.
+        """
+        fd = open(self.save_vms_file_path)
+        for line in fd:
+            if line.startswith(vm_id):
+                # this is the entire dict to be populated with data
+                vm_info = {}
+                vm_info['vm_id'] = None
+                vm_info['Nimbus'] = None
+                vm_info['cloudindex'] = None
+                vm_info['EC2'] = None
+                vm_info['status'] = None
+                vm_info['eprfile'] = None
+                vm_info['instanceid'] = None
+                vm_info['reservationid'] = None
+
+                # assume the following data format:
+                # nimbus: vmid;nbX;status[;eprfile]
+                # ec2:    vmid;ec2;status[;reservationid;instanceid]
+                data = line.rstrip().split(";")
+                if len(data) >= 3:
+                    vm_id = data[0]
+                    cloudname = data[1]
+                    status = data[2]
+
+                    vm_info['vm_id'] = vm_id
+                    vm_info['status'] = status
+                    if self.nbx(cloudname):
+                        vm_info['Nimbus'] = True
+                        vm_info['cloudindex'] = self.nbx(cloudname)
+                        vm_info['EC2'] = False
+                        if len(data) == 4:
+                            vm_info['eprfile'] = data[3]
+                    elif cloudname.lower() == "ec2":
+                        vm_info['Nimbus'] = False
+                        vm_info['cloudindex'] = False
+                        vm_info['EC2'] = True
+                        if len(data) == 5:
+                            vm_info['instanceid'] = data[4]
+                            vm_info['reservationid'] = data[3]
+                    else:
+                        self.logger.error("no valid nimbus cloud name found")
+                        return False
+                    return vm_info
+                else:
+                    self.logger.error(("get_vm_info_from_file(): There should "
+                        " be at least 3 data fields. Found %s" % len(data)))
+                    return False
+        self.logger.error(("get_vm_info_from_file():couldn't find VM ID %s in"
+            " file %s" % (vm_id, self.save_vms_file_path)))
+        return False
+
     def append_save_vms_file(self, savestring):
         """
         Append data to VMs save file. like: "vm_id;cloud;prepared".
@@ -523,7 +592,7 @@ class Session(object):
                 nbcloud.run_vms(number=nbr)
                 return
 
-    def nimbus_factory_rp_query(self, cloud_index):
+    def nimbus_query_factory_rp(self, cloud_index):
         for nbcloud in self.nimbus_clouds:
             if nbcloud.cloud_index == cloud_index:
                 self.logger.info(("order to query Factory RP on Nimbus Cloud %s"

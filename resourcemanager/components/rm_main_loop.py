@@ -119,7 +119,11 @@ class ResourceManagerMainLoop(threading.Thread):
                 elif uicmd.startswith('run_vms'):
                     self.run_vms(uicmd)
                 elif uicmd.startswith('query_fact_rp'):
-                    self.nimbus_factory_rp_query(uicmd)
+                    self.nimbus_query_factory_rp(uicmd)
+                elif uicmd.startswith('query_workspace'):
+                    self.nimbus_query_workspace(uicmd)
+                elif uicmd.startswith('show_vm_info'):
+                    self.show_vm_info(uicmd)
                 else:
                     self.ui_msg('unknown command')
 
@@ -164,30 +168,31 @@ class ResourceManagerMainLoop(threading.Thread):
         for nimbus_cloud in self.session.nimbus_clouds:
             nimbus_cloud.check_nimbus_cloud_client_wrappers()
 
-    def nbx(self, string, nbcldidcs):
-        """
-        Analyse string if it has the form 'nbX'.
-        Return valid Nimbus Cloud Index X or False. Therefore, it needs a list
-        `nbcldidcs` of valid Nimbus Cloud Indices.
-        """
-        parts = string.lower().split('nb')
-        if len(parts) == 2:
-            if parts[1].isdigit():
-                if int(parts[1]) in nbcldidcs:
-                    return int(parts[1])
-        return False
-
-    def nimbus_factory_rp_query(self, cmd):
+    def nimbus_query_factory_rp(self, cmd):
         words = [word.lower() for word in cmd.split()]
         nbcldidcs = self.session.nimbus_cloud_indices()
         if len(words) == 2 and words[0] == 'query_fact_rp':
             cloud = words[1]                 # cloud name
-            index = self.nbx(cloud,nbcldidcs)# valid nimbus cloud index or False
+            index = self.session.nbx(cloud)  # valid nimbus cloud index or False
             if index:
-                self.session.nimbus_factory_rp_query(cloud_index=index)
+                self.session.nimbus_query_factory_rp(cloud_index=index)
                 return
         self.ui_msg(("better: e.g. 'query_fact_rp Nb1' or 'query_fact_rp Nb13'."
             " Nimbus cloud indices available: %s"%str(nbcldidcs)))
+
+    def nimbus_query_workspace(self, uicmd):
+        #get_vm_info_from_file(
+        pass
+
+    def show_vm_info(self, cmd):
+        words = [word.lower() for word in cmd.split()]
+        if len(words) == 2 and words[0] == 'show_vm_info':
+            entered_vm_id = words[1]
+            vm_info = self.session.get_vm_info_from_file(vm_id=entered_vm_id)
+            if vm_info:
+                self.ui_msg('\n'+repr(vm_info))
+            return
+        self.ui_msg("better: e.g. 'show_vm_info vm-0001'.")
 
     def run_vms(self, cmd):
         """
@@ -195,14 +200,12 @@ class ResourceManagerMainLoop(threading.Thread):
         E.g.: "run_vms EC2 15" or "run_vms nb1 2"
         invoke run command after re-insurance.
         """
-
-
         words = [word.lower() for word in cmd.split()]
         nbcldidcs = self.session.nimbus_cloud_indices()
         if len(words) == 3 and words[0] == 'run_vms':
             cloud = words[1]                 # cloud name
             number = words[2]                # number of vms
-            index = self.nbx(cloud,nbcldidcs)# valid nimbus cloud index or False
+            index = self.session.nbx(cloud)  # valid nimbus cloud index or False
             if (cloud == 'ec2' or index) and number.isdigit():
                 number = int(number)
                 if cloud == 'ec2':
@@ -280,6 +283,7 @@ class ResourceManagerMainLoop(threading.Thread):
             +"\n* start:             Start main loop / continue after break."
             +"\n* run_vms cloud X:   Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
             +"\n* query_fact_rp NbX: Nimbus Factory RP query"
+            +"\n* show_vm_info vm-X: shows VM info as stored in save.session.vms"
             +"\n* poll_sdb:          Update SDB monitoring data."
             +"\n* poll_sqs:          Update SQS monitoring data.")
         self.ui_msg(helpstring)
