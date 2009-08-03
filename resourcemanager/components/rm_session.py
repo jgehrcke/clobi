@@ -880,7 +880,8 @@ class InitialSessionConfig(object):
                     nimbus_config_file_abspath = check_file(os.path.join(
                         os.path.dirname(self.session_config_file_abspath),
                         session_config.get('Nimbus', option).decode('UTF-8')))
-                    self.nimbus.sorted_configfile_dict[cloud_index] =                                                      nimbus_config_file_abspath
+                    self.nimbus.sorted_configfile_dict[cloud_index] = (
+                        nimbus_config_file_abspath)
                     self.logger.debug(("config file for Nimbus cloud with index"
                                        " %s: %s") % (cloud_index,
                                        nimbus_config_file_abspath))
