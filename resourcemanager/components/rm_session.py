@@ -608,6 +608,14 @@ class Session(object):
                 nbcloud.query_workspace(eprfile_path=eprfile)
                 return
 
+    def nimbus_destroy_workspace(self, cloud_index, eprfile):
+        for nbcloud in self.nimbus_clouds:
+            if nbcloud.cloud_index == cloud_index:
+                self.logger.info(("order to destroy Workspace with EPR file %s"
+                    " on Nimbus Cloud %s" % (eprfile, cloud_index)))
+                nbcloud.destroy_workspace(eprfile_path=eprfile)
+                return
+
     def load_initial_session_config(self):
         """
         Load initial session config (from user-given file). This includes
@@ -1092,6 +1100,41 @@ class NimbusCloud(object):
             else:
                 self.logger.error("subprocess did not start")
 
+    def destroy_workspace(self, eprfile_path):
+        """
+        Invoke Workspace RP Query, only using a given EPR file. No "vm-xxxx"
+        context given here.
+        """
+        # renew grid proxy if necessary
+        if self.expires_grid_proxy():
+            self.grid_proxy_init()
+
+        # generate cloudclient_run_order
+        cloudclient_run_order = {}
+        cloudclient_run_order['action'] = "destroy"
+
+        timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
+        run_id = ("workspace_destroy-nb%s-%s" %(self.cloud_index,timestr))
+        cloudclient_run_order['run_id'] = run_id
+        workdir = os.path.join(self.nb_clcl_main_work_dir,run_id)
+        cloudclient_run_order['workdir'] = workdir
+
+        cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
+                        exe=os.path.join(
+                            self.inicfg.nimbus_cloud_client_root,
+                            "lib/workspace.sh"),
+                        workdir=workdir,
+                        gridproxyfile=self.grid_proxy_file_path,
+                        action="destroy",
+                        run_id=run_id,
+                        eprfile=eprfile_path)
+
+        if cloudclient_run_order['clclwrapper'].run():
+            self.cloudclient_run_orders.append(cloudclient_run_order)
+            self.logger.info("subprocess successfully started.")
+        else:
+            self.logger.error("subprocess did not start")
+
     def query_workspace(self, eprfile_path):
         """
         Invoke Workspace RP Query, only using a given EPR file. No "vm-xxxx"
@@ -1179,8 +1222,19 @@ class NimbusCloud(object):
                     deploy_new_state = 'error'
                     self.logger.error(("Returncode of Cloud Client run order %s"
                         " wasn't 0." % clclrunorder['run_id']))
+                    if os.path.exists(
+                    clclrunorder['clclwrapper'].stdouterr_file_path):
+                        self.logger.error("Content of log file %s: %s"
+                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
+                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read()))
                 else:
                     deploy_new_state = 'started'
+                    if clclrunorder['action'] == "destroy":
+                        self.logger.info(("Workspace destroy subprocess "
+                            " successfully ended. Content of rpquery log file"
+                            "  %s: %s"
+                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
+                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
                     if clclrunorder['action'] == "rpquery":
                         self.logger.info(("Workspace RP Query subprocess "
                             " successfully ended. Content of rpquery log file"

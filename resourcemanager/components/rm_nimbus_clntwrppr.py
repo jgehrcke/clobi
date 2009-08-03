@@ -199,10 +199,10 @@ class NimbusClientWrapper(object):
                     self.logger.error("eprfile doesn't exist: %s" %eprfile)
                     self.misconfigured = True
                 if not self.misconfigured:
-                    self.cmdline.append("--destory")
+                    self.cmdline.append("--destroy")
                     self.cmdline.append("--eprFile")
                     self.cmdline.append(eprfile)
-                    self.cmdline.append("--dryrun")
+                    #self.cmdline.append("--dryrun")
             else:
                 self.logger.error("unknown action: %s" % action)
                 self.misconfigured = True
