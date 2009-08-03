@@ -35,7 +35,7 @@ class NimbusClientWrapper(object):
                         gridproxyfile,
                         action,
                         serviceurl,
-                        run_id=None,
+                        run_id,
                         exe=None,
                         userdata=None,
                         eprfile=None,
@@ -183,8 +183,8 @@ class NimbusClientWrapper(object):
                 if not self.misconfigured:
                     self.cmdline.append("--factoryrp")
                     self.cmdline.append("--service")
-                    self.cmdline.append(seviceurl)
-                    self.cmdline.append("--dryrun")
+                    self.cmdline.append(serviceurl)
+                    #self.cmdline.append("--dryrun")
             elif action == "rpquery":
                 if not os.path.isfile(eprfile):
                     self.logger.error("eprfile doesn't exist: %s" %eprfile)

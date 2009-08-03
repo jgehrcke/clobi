@@ -395,6 +395,12 @@ class Session(object):
         self.nimbus_clouds = None
         self.ec2 = None
 
+    def nimbus_cloud_indices(self):
+        """
+        Return list of Cloud Indices of all Nimubs clouds within the session.
+        """
+        return [nbcld.cloud_index for nbcld in self.nimbus_clouds]
+
     def generate_userdata(self, vm_id):
         """
         Generate userdata string for VM ID. This is the string delivered with
@@ -509,19 +515,21 @@ class Session(object):
         self.logger.info("order to run %s VMs on EC2" % nbr)
         self.ec2.run_vms(number=nbr)
 
-    def run_vms_nimbus(self, idx, nbr):
+    def run_vms_nimbus(self, cloud_index, nbr):
         for nbcloud in self.nimbus_clouds:
-            if nbcloud.cloud_index == idx:
+            if nbcloud.cloud_index == cloud_index:
                 self.logger.info(("order to run %s VMs on Nimbus Cloud %s"
-                    % (nbr,idx)))
+                    % (nbr,cloud_index)))
                 nbcloud.run_vms(number=nbr)
                 return
 
-    # def run_vm(self, args):
-        # # where to run? at first, check Nimbus clouds. Then EC2.
-        # for nimbus_cloud in self.nimbus_clouds:
-            # if nimbus_cloud.number_of_running_vms < nimbus_cloud.inicfg.max_instances:
-                # nimbus_cloud.run(args)
+    def nimbus_factory_rp_query(self, cloud_index):
+        for nbcloud in self.nimbus_clouds:
+            if nbcloud.cloud_index == cloud_index:
+                self.logger.info(("order to query Factory RP on Nimbus Cloud %s"
+                    % cloud_index))
+                nbcloud.query_factory_rp()
+                return
 
     def load_initial_session_config(self):
         """
@@ -976,6 +984,7 @@ class NimbusCloud(object):
         for vm_id in vm_ids:
             run_id = self.generate_clclwrapper_run_id(vm_id)
             cloudclient_run_order = {}
+            cloudclient_run_order['action'] = "deploy"
             cloudclient_run_order['run_id'] = run_id
             cloudclient_run_order['vm_id'] = vm_id
             eprfile=os.path.join(self.nb_clcl_main_work_dir,run_id,vm_id+".epr")
@@ -1006,6 +1015,41 @@ class NimbusCloud(object):
             else:
                 self.logger.error("subprocess did not start")
 
+    def query_factory_rp(self):
+        """
+        Invoke "Factory RP Query" on Nimbus cloud via Nimbus Cloud Client
+        wrapper.
+        """
+        # renew grid proxy if necessary
+        if self.expires_grid_proxy():
+            self.grid_proxy_init()
+
+        # generate cloudclient_run_order
+        cloudclient_run_order = {}
+        cloudclient_run_order['action'] = "factoryrp"
+
+        timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
+        run_id = ("factory_rp_query-nb%s-%s" %(self.cloud_index,timestr))
+        cloudclient_run_order['run_id'] = run_id
+        workdir = os.path.join(self.nb_clcl_main_work_dir,run_id)
+        cloudclient_run_order['workdir'] = workdir
+
+        cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
+            run_id = run_id,
+            gridproxyfile=self.grid_proxy_file_path,
+            exe=os.path.join(
+                self.inicfg.nimbus_cloud_client_root,
+                "lib/workspace.sh"),
+            action="factoryrp",
+            workdir=workdir,
+            serviceurl=self.inicfg.service_url,)
+
+        if cloudclient_run_order['clclwrapper'].run():
+            self.cloudclient_run_orders.append(cloudclient_run_order)
+            self.logger.info("subprocess successfully started.")
+        else:
+            self.logger.error("subprocess did not start")
+
     def check_nimbus_cloud_client_wrappers(self):
         """
         Check state of Cloud Client runs. Update save.session.vms file with
@@ -1020,12 +1064,22 @@ class NimbusCloud(object):
             success = clclrunorder['clclwrapper'].was_successfull()
             if success is not None:                     # subprocess ended
                 if not success:                         # returncode != 0
-                    new_state = 'error'
+                    deploy_new_state = 'error'
+                    self.logger.error(("Returncode of Cloud Client run order %s"
+                        " wasn't 0." % clclrunorder['run_id']))
                 else:
-                    new_state = 'started'
-                self.session.update_save_vms_file_entry(
-                    vm_id=clclrunorder['vm_id'],
-                    new_state=new_state)
+                    deploy_new_state = 'started'
+                    if clclrunorder['action'] == "factoryrp":
+                        self.logger.info(("Factory RP Query subprocess "
+                            " successfully ended. Content of factoryrp log file"
+                            "  %s:%s"
+                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
+                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
+
+                if clclrunorder['action'] == "deploy":
+                    self.session.update_save_vms_file_entry(
+                        vm_id=clclrunorder['vm_id'],
+                        new_state=deploy_new_state)
                 delete_indices.append(idx)
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):
@@ -1039,6 +1093,8 @@ class NimbusCloud(object):
         current time and random string -> Should be unique  ;-)
         The run ID represents one call of the cloud client. It is e.g. used
         as directory name for workspace.sh logfiles and EPR file(s).
+        (Note: only used for deploy; the actions rp query and destroy work in
+        already existing directories, factory rp query gets its own dir)
         """
         timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
         run_id = ("%s-nb%s-%s" %(vm_id,self.cloud_index,timestr))
