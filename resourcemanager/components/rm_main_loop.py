@@ -219,7 +219,8 @@ class ResourceManagerMainLoop(threading.Thread):
                         vm_info['eprfile']))):
                             self.session.nimbus_destroy_workspace(
                                 cloud_index=vm_info['cloudindex'],
-                                eprfile=vm_info['eprfile'])
+                                eprfile=vm_info['eprfile'],
+                                vm_id=vm_info['vm_id'])
                         else:
                             self.ui_msg('aborted.')
                     else:

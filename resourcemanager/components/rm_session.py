@@ -608,12 +608,12 @@ class Session(object):
                 nbcloud.query_workspace(eprfile_path=eprfile)
                 return
 
-    def nimbus_destroy_workspace(self, cloud_index, eprfile):
+    def nimbus_destroy_workspace(self, cloud_index, eprfile, vm_id=None):
         for nbcloud in self.nimbus_clouds:
             if nbcloud.cloud_index == cloud_index:
                 self.logger.info(("order to destroy Workspace with EPR file %s"
                     " on Nimbus Cloud %s" % (eprfile, cloud_index)))
-                nbcloud.destroy_workspace(eprfile_path=eprfile)
+                nbcloud.destroy_workspace(eprfile_path=eprfile,vm_id=vm_id)
                 return
 
     def load_initial_session_config(self):
@@ -1100,10 +1100,10 @@ class NimbusCloud(object):
             else:
                 self.logger.error("subprocess did not start")
 
-    def destroy_workspace(self, eprfile_path):
+    def destroy_workspace(self, eprfile_path, vm_id=None):
         """
-        Invoke Workspace RP Query, only using a given EPR file. No "vm-xxxx"
-        context given here.
+        Invoke Workspace RP Query, only using a given EPR file. "vm-xxxx"
+        context must not be given here.
         """
         # renew grid proxy if necessary
         if self.expires_grid_proxy():
@@ -1112,6 +1112,8 @@ class NimbusCloud(object):
         # generate cloudclient_run_order
         cloudclient_run_order = {}
         cloudclient_run_order['action'] = "destroy"
+        if vm_id:
+            cloudclient_run_order['vm_id'] = vm_id
 
         timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
         run_id = ("workspace_destroy-nb%s-%s" %(self.cloud_index,timestr))
@@ -1208,51 +1210,66 @@ class NimbusCloud(object):
     def check_nimbus_cloud_client_wrappers(self):
         """
         Check state of Cloud Client runs. Update save.session.vms file with
-        success or error information:
-        on success: new state 'started'
-        on error (returncode != 0): new state 'error'
+        new state information.
+        e.g. on deply success: new state 'started',
+        on deploy error (returncode != 0): new state 'deploy_error'
         Delete cloutclient_run_order list item after analysis (only if success
         or error; do nothing of subprocess is not returned).
         """
         delete_indices = []
+        vm_new_state = None
         for idx, clclrunorder in enumerate(self.cloudclient_run_orders):
             success = clclrunorder['clclwrapper'].was_successfull()
             if success is not None:                     # subprocess ended
                 if not success:                         # returncode != 0
-                    deploy_new_state = 'error'
                     self.logger.error(("Returncode of Cloud Client run order %s"
                         " wasn't 0." % clclrunorder['run_id']))
-                    if os.path.exists(
-                    clclrunorder['clclwrapper'].stdouterr_file_path):
-                        self.logger.error("Content of log file %s: %s"
-                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
-                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read()))
+                    if clclrunorder['action'] == "deploy":
+                        vm_new_state = 'deploy_error'
+                    elif clclrunorder['action'] == "destroy":
+                        vm_new_state = 'destroy_error(terminated?)'
+                        if os.path.exists(
+                        clclrunorder['clclwrapper'].stdouterr_file_path):
+                            self.logger.error("content of destroy log file %s: %s"
+                                % (clclrunorder['clclwrapper'].stdouterr_file_path,
+                                open(clclrunorder['clclwrapper'].stdouterr_file_path).read()))
                 else:
-                    deploy_new_state = 'started'
-                    if clclrunorder['action'] == "destroy":
+                    if clclrunorder['action'] == "deploy":
+                        vm_new_state = 'started'
+                    elif clclrunorder['action'] == "destroy":
+                        vm_new_state = 'manually_destroyed'
                         self.logger.info(("Workspace destroy subprocess "
                             " successfully ended. Content of rpquery log file"
                             "  %s: %s"
                             % (clclrunorder['clclwrapper'].stdouterr_file_path,
                             open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
-                    if clclrunorder['action'] == "rpquery":
+                    elif clclrunorder['action'] == "rpquery":
                         self.logger.info(("Workspace RP Query subprocess "
                             " successfully ended. Content of rpquery log file"
                             "  %s: %s"
                             % (clclrunorder['clclwrapper'].stdouterr_file_path,
                             open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
-                    if clclrunorder['action'] == "factoryrp":
+                    elif clclrunorder['action'] == "factoryrp":
                         self.logger.info(("Factory RP Query subprocess "
                             " successfully ended. Content of factoryrp log file"
                             "  %s: %s"
                             % (clclrunorder['clclwrapper'].stdouterr_file_path,
                             open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
 
-                if clclrunorder['action'] == "deploy":
+                # when there was an action that changed the state of *any*
+                # workspace *AND* this workspace is attributive to a VM ID,
+                # THEN change state of the VM in save.session.vms (e.g. when
+                # destroy wasn't only called with an EPR file, but also with a
+                # VM ID).
+                if vm_new_state and clclrunorder['vm_id']:
                     self.session.update_save_vms_file_entry(
                         vm_id=clclrunorder['vm_id'],
-                        new_state=deploy_new_state)
+                        new_state=vm_new_state)
+
+                # this subprocess returned and was analyzed. We don't need the
+                # cloud client wrapper instance anymore: mark it to delete
                 delete_indices.append(idx)
+
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):
             self.logger.debug(("delete cloudclient_run_order object with run id %s"
