@@ -997,8 +997,8 @@ class NimbusCloud(object):
                 displayname="cloud-%s-%s" % (self.cloud_index,vm_id),
                 exitstate="Running",
                 polldelay="5000")
-            self.cloudclient_run_orders.append(cloudclient_run_order)
             if cloudclient_run_order['clclwrapper'].run():
+                self.cloudclient_run_orders.append(cloudclient_run_order)
                 self.session.update_save_vms_file_entry(
                     vm_id=vm_id,
                     new_state="run_ordered",
@@ -1176,6 +1176,7 @@ class EC2(object):
         for vm_id in vm_ids:
             ec2_run_order = {}
             ec2_run_order['vm_id'] = vm_id
+            request_success = True
             try:
                 self.logger.info(("send EC2 request: run 1 instance of type %s"
                     " of image %s with specific user-data"
@@ -1189,13 +1190,17 @@ class EC2(object):
             except:
                 import traceback
                 traceback.print_exc()
+                request_success = False
 
-            self.ec2_run_orders.append(ec2_run_order)
-            self.session.update_save_vms_file_entry(
-                vm_id=vm_id,
-                new_state="run_ordered",
-                append=[ec2_run_order['boto_rsrvtn_obj'].id])
-                #append=["some_reservation_id"])
+            if request_success:
+                self.ec2_run_orders.append(ec2_run_order)
+                self.session.update_save_vms_file_entry(
+                    vm_id=vm_id,
+                    new_state="run_ordered",
+                    append=[ec2_run_order['boto_rsrvtn_obj'].id])
+                    #append=["some_reservation_id"])
+            else:
+                self.logger.error("an error appeared while sending the request")
 
     def check_runinstances_request_states(self):
         """
