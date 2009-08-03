@@ -180,9 +180,26 @@ class ResourceManagerMainLoop(threading.Thread):
         self.ui_msg(("better: e.g. 'query_fact_rp Nb1' or 'query_fact_rp Nb13'."
             " Nimbus cloud indices available: %s"%str(nbcldidcs)))
 
-    def nimbus_query_workspace(self, uicmd):
-        #get_vm_info_from_file(
-        pass
+    def nimbus_query_workspace(self, cmd):
+        words = [word.lower() for word in cmd.split()]
+        if len(words) == 2 and words[0] == 'query_workspace':
+            entered_vm_id = words[1]
+            vm_info = self.session.get_vm_info_from_file(vm_id=entered_vm_id)
+            if vm_info:
+                if vm_info['EC2']:
+                    self.ui_msg("This VM corresponds to an EC2 instance.")
+                elif vm_info['Nimbus']:
+                    if vm_info['eprfile']:
+                        self.session.nimbus_query_workspace(
+                            cloud_index=vm_info['cloudindex'],
+                            eprfile=vm_info['eprfile'])
+                    else:
+                        self.logger.error(("No EPR file defined in "
+                            "save.session.vms for VM %s" % entered_vm_id))
+                else:
+                    self.logger.error("This state should never be reached :-)")
+            return
+        self.ui_msg("better: e.g. 'query_workspace vm-0133'.")
 
     def show_vm_info(self, cmd):
         words = [word.lower() for word in cmd.split()]
@@ -277,15 +294,16 @@ class ResourceManagerMainLoop(threading.Thread):
         Write help message to `self.pipe_cmdresp_write` -> UI
         """
         helpstring = ("Available commands:"
-            +"\n* help:              Display this help message."
-            +"\n* quit:              Quit Resource Manager."
-            +"\n* pause:             Pause main loop (stop automatic operation)."
-            +"\n* start:             Start main loop / continue after break."
-            +"\n* run_vms cloud X:   Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
-            +"\n* query_fact_rp NbX: Nimbus Factory RP query"
-            +"\n* show_vm_info vm-X: shows VM info as stored in save.session.vms"
-            +"\n* poll_sdb:          Update SDB monitoring data."
-            +"\n* poll_sqs:          Update SQS monitoring data.")
+            +"\n* help:                 Display this help message."
+            +"\n* quit:                 Quit Resource Manager."
+            +"\n* pause:                Pause main loop (stop automatic operation)."
+            +"\n* start:                Start main loop / continue after break."
+            +"\n* run_vms cloud X:      Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
+            +"\n* query_fact_rp NbX:    Query Nimbus Factory RP"
+            +"\n* query_workspace vm-X: Query Nimbus workspace correspondig to VM ID"
+            +"\n* show_vm_info vm-X:    shows VM info as stored in save.session.vms"
+            +"\n* poll_sdb:             Update SDB monitoring data."
+            +"\n* poll_sqs:             Update SQS monitoring data.")
         self.ui_msg(helpstring)
 
     def poll_command_queue(self, timeout):

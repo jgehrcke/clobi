@@ -31,14 +31,14 @@ import traceback
 
 
 class NimbusClientWrapper(object):
-    def __init__(self,  workdir,
+    def __init__(self,  exe,
+                        workdir,
                         gridproxyfile,
                         action,
-                        serviceurl,
                         run_id,
-                        exe=None,
-                        userdata=None,
                         eprfile=None,
+                        serviceurl=None,
+                        userdata=None,
                         sshfile=None,
                         metadatafile=None,
                         requestfile=None,
@@ -175,7 +175,7 @@ class NimbusClientWrapper(object):
                     self.cmdline.append("--mdUserdata")
                     self.cmdline.append(userdatafile)
                     self.cmdline.append("--debug")
-                    self.cmdline.append("--dryrun")
+                    #self.cmdline.append("--dryrun")
             elif action == "factoryrp":
                 if not serviceurl:
                     self.logger.error("service url argument missing")
@@ -193,7 +193,7 @@ class NimbusClientWrapper(object):
                     self.cmdline.append("--rpquery")
                     self.cmdline.append("--eprFile")
                     self.cmdline.append(eprfile)
-                    self.cmdline.append("--dryrun")
+                    #self.cmdline.append("--dryrun")
             elif action == "destroy":
                 if not os.path.isfile(eprfile):
                     self.logger.error("eprfile doesn't exist: %s" %eprfile)
