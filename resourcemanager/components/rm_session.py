@@ -998,20 +998,13 @@ class NimbusCloud(object):
                 exitstate="Running",
                 polldelay="5000")
             self.cloudclient_run_orders.append(cloudclient_run_order)
-            cloudclient_run_order['clclwrapper'].run()
-            self.session.update_save_vms_file_entry(
-                vm_id=vm_id,
-                new_state="run_ordered",
-                append=[eprfile])
-
-            # nimbus_cloud=self,
-            # action="deploy",
-            # vm_id="0001",
-            # session_run_dir=self.session.run_dir)
-
-        # clclwrapper.set_up_cmdline_params()
-        # clclwrapper.set_up_env_vars()
-        #clclwrapper.run()
+            if cloudclient_run_order['clclwrapper'].run():
+                self.session.update_save_vms_file_entry(
+                    vm_id=vm_id,
+                    new_state="run_ordered",
+                    append=[eprfile])
+            else:
+                self.logger.error("subprocess did not start")
 
     def check_nimbus_cloud_client_wrappers(self):
         """
@@ -1024,9 +1017,9 @@ class NimbusCloud(object):
         """
         delete_indices = []
         for idx, clclrunorder in enumerate(self.cloudclient_run_orders):
-            eprfile = clclrunorder['clclwrapper'].get_epr_file_on_success()
-            if eprfile is not None:                     # subprocess ended
-                if not eprfile:                         # returncode != 0
+            success = clclrunorder['clclwrapper'].was_successfull()
+            if success is not None:                     # subprocess ended
+                if not success:                         # returncode != 0
                     new_state = 'error'
                 else:
                     new_state = 'started'
