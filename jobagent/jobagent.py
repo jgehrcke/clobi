@@ -53,6 +53,7 @@ def main():
         start_options = parseargs()
         jobagent = JobAgent(start_options)
         jobagent.init_sdb()
+        jobagent.init_sqs()
     except:
         logger.critical("Job Agend ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -77,6 +78,8 @@ class SimpleDB(object):
         self.logger.debug("create SimpleDB connection object")
         self.sdbconn = boto.connect_sdb(self.inicfg.aws_accesskey,
                                         self.inicfg.aws_secretkey)
+
+        # to be populated
         self.boto_domainobj_session = None
         self.boto_domainobj_jobs = None
 
@@ -120,10 +123,104 @@ class SimpleDB(object):
         """
         Get HighestPriority flag from SDB
         """
+        self.logger.debug("Retrieve HighestPriority item from SDB")
         item = self.boto_domainobj_session.get_item('session_props')
-        self.highest_priority = item['HighestPriority']
-        self.logger.info(("got HighestPriority from SDB: %s"
-            % self.highest_priority))
+        hp = item['HighestPriority']
+        self.logger.info(("got HighestPriority from SDB: %s" % hp))
+        return hp
+
+
+class SQS(object):
+    """
+    Set up SQS for this session. Provide an interface to SQS (all
+    ResourceManager communication with SQS is done via this class)
+    """
+    def __init__(self, initial_jobagent_config, initial_highest_priority):
+        self.logger = logging.getLogger("jobagent.py.SQS")
+        self.logger.debug("initialize SQS object")
+
+        # constructor arguments
+        self.inicfg = initial_jobagent_config
+
+        self.prefix = self.inicfg.sessionid
+        self.suffix = "_P"
+
+        # init boto objects
+        self.logger.debug("create SQS connection object")
+        self.sqsconn = boto.connect_sqs(self.inicfg.aws_accesskey,
+                                        self.inicfg.aws_secretkey)
+
+        # to be populated..
+        self.queues_priorities_botosqsqueueobjs = None
+        self.queues_priorities_names = None
+        self.highest_priority = None
+
+        self.generate_queues_priorities_names(initial_highest_priority)
+
+
+    def generate_queues_priorities_names(self, highest_priority):
+        """
+        Populate self.queues_priorities_names:
+        For each priority put together a string: the queue name. Then put it
+        into a dict with the priority (integer) as key.
+        """
+        self.highest_priority = int(highest_priority)
+        self.queues_priorities_names = {}
+        for p in range(1,self.highest_priority+1):
+            self.queues_priorities_names[p] = ("%s%s%s"
+                % (self.prefix, self.suffix, p))
+        outputstring = '\n'.join(
+                      ["         queue name for priority %s: %s" % (key,value)
+                       for key, value in self.queues_priorities_names.items()])
+        self.logger.info(("generated SQS priority/queuename pairs:\n"
+                          + outputstring))
+
+    def query_queues(self):
+        """
+        Perform a 'GetQueueAttributes' request on all session queues; only
+        receive approximate number of messages.
+        """
+        self.logger.debug("get attributes for all SQS queues...")
+        for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
+            attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
+            jobnbr = attr['ApproximateNumberOfMessages']
+            self.queue_jobnbrs_laststate[prio] = jobnbr
+            self.logger.info(("queue for priority %s:\napprox nbr of jobs: %s"
+                 % (prio, jobnbr)))
+
+    def check_queues(self):
+        """
+        Populate self.queues_priorities_botosqsqueueobjs with boto Queue objects
+        Check queues in several steps:
+            - Retrieve all existing SQS queues with this session prefix
+            - take self.queues_priorities_names (containing priority/namy pairs
+              this session NEEDS)
+                - for each name in there look if a corresponding queue
+                  exists online
+                    yes: store boto queue object to
+                         self.queues_priorities_botosqsqueueobjs
+                    no: must not happen-> EXIT
+        """
+        self.logger.info("check queues with prefix "+self.prefix)
+        existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
+        self.queues_priorities_botosqsqueueobjs = {}
+        for prio, queue_name in self.queues_priorities_names.items():
+            self.logger.info(("check queue %s for priority %s"
+                % (queue_name,prio)))
+            found = False
+            for q in existing_queues:
+                if q.url.endswith(queue_name):
+                    self.logger.info(("SQS queue %s for priority %s is"
+                        " existing" % (q.url,prio)))
+                    found = True
+                    self.queues_priorities_botosqsqueueobjs[prio] = q
+                    break
+            if not found:
+                self.logger.critical(("SQS queue for priority %s is not "
+                    "existing, but it must! Exit!" % prio))
+                sys.exit(1)
+            self.logger.info(("SQS queue for priority "+str(prio)
+                             +" is now available: "+ str(q.url)))
 
 
 class JobAgent(object):
@@ -167,11 +264,23 @@ class JobAgent(object):
         # to be populated..
         self.sdb = None
         self.sqs = None
+        self.highest_priority = None
 
     def init_sdb(self):
         self.sdb = SimpleDB(self.inicfg)
+        self.highest_priority = self.sdb.get_highest_priority()
 
-
+    def init_sqs(self):
+        """
+        Initializes SQS queues. SDB has to be initialized before
+        (self.highest_priority must be set):
+        """
+        if not self.highest_priority :
+            self.logger.error(("highest priority must be set before "
+                "initializing SQS!"))
+            return
+        self.sqs = SQS(self.inicfg, self.highest_priority)
+        self.sqs.check_queues()
 
 
 
