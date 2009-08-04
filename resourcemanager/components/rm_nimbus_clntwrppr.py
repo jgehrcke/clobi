@@ -47,7 +47,7 @@ class NimbusClientWrapper(object):
                         exitstate=None,
                         polldelay=None):
 
-        self.logger = logging.getLogger("RM.CloudClientWrapper.%s" % run_id)
+        self.logger = logging.getLogger("RM.NimbusClientWrapper.%s" % run_id)
         self.logger.debug("initialize NimbusClientWrapper object")
 
         # save some constructor arguments
@@ -220,7 +220,7 @@ class NimbusClientWrapper(object):
             self.logger.info("run Nimbus Cloud Client as subprocess")
 
             timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-            stdouterr_file_name = ("cloudclient_%s_%s.log"
+            stdouterr_file_name = ("nimbusclient_%s_%s.log"
                 %(self.action,timestring))
             self.stdouterr_file_path = os.path.join(
                 self.workdir,

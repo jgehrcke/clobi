@@ -1253,17 +1253,17 @@ class NimbusCloud(object):
                         vm_new_state = 'started'
                     elif clclrunorder['action'] == "destroy":
                         vm_new_state = 'manually_destroyed'
-                        self.logger.info(("Workspace destroy subprocess "
+                        self.logger.info(("Workspace destroy subprocess"
                             " successfully ended. Content of destroy log file"
                             "  %s: %s"
                             % get_logfilepath_and_log(clclrunorder)))
                     elif clclrunorder['action'] == "rpquery":
-                        self.logger.info(("Workspace RP Query subprocess "
+                        self.logger.info(("Workspace RP Query subprocess"
                             " successfully ended. Content of rpquery log file"
                             "  %s: %s"
                             % get_logfilepath_and_log(clclrunorder)))
                     elif clclrunorder['action'] == "factoryrp":
-                        self.logger.info(("Factory RP Query subprocess "
+                        self.logger.info(("Factory RP Query subprocess"
                             " successfully ended. Content of factoryrp log file"
                             "  %s: %s"
                             % get_logfilepath_and_log(clclrunorder)))

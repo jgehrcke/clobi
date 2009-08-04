@@ -257,11 +257,11 @@ class ResourceManagerMainLoop(threading.Thread):
             if (cloud == 'ec2' or index) and number.isdigit():
                 number = int(number)
                 if cloud == 'ec2':
-                    if self.yes_no('Run %s VMs on EC2?' % number):
+                    if self.yes_no('Run %s VM(s) on EC2?' % number):
                         self.session.run_vms_ec2(number)
                     else:
                         self.ui_msg('aborted.')
-                elif self.yes_no('Run %s VMs on Nimbus Cloud %s?'%(number,index)):
+                elif self.yes_no('Run %s VM(s) on Nimbus Cloud %s?'%(number,index)):
                     self.session.run_vms_nimbus(index,number)
                 else:
                     self.ui_msg('aborted.')
