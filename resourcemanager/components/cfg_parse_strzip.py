@@ -1,6 +1,6 @@
 ﻿# -*- coding: UTF-8 -*-
 #
-#   ::::::> CONFIGPARSER MODULE WITH ZIP/STRING SUPPORT <::::::
+#   ::::::> Clobi CONFIGPARSER MODULE WITH ZIP/STRING SUPPORT <::::::
 #
 #   Contact: http://gehrcke.de
 #

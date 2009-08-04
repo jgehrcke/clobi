@@ -1,6 +1,6 @@
 ﻿# -*- coding: UTF-8 -*-
 #
-#   ::::::::> RESOURCE MANAGER <::::::::
+#   ::::::::> Clobi RESOURCE MANAGER <::::::::
 #   Nimbus Client Wrapper module
 #
 #   Contact: http://gehrcke.de
@@ -175,7 +175,7 @@ class NimbusClientWrapper(object):
                     self.cmdline.append("--mdUserdata")
                     self.cmdline.append(userdatafile)
                     self.cmdline.append("--debug")
-                    #self.cmdline.append("--dryrun")
+                    self.cmdline.append("--dryrun")
             elif action == "factoryrp":
                 if not serviceurl:
                     self.logger.error("service url argument missing")

@@ -1,6 +1,6 @@
 ﻿# -*- coding: UTF-8 -*-
 #
-#   ::::::::> RESOURCE MANAGER <::::::::
+#   ::::::::> Clobi RESOURCE MANAGER <::::::::
 #   Resource Manager GUI module
 #
 #   Contact: http://gehrcke.de

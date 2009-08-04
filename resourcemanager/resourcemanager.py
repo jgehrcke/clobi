@@ -1,6 +1,6 @@
 ﻿# -*- coding: UTF-8 -*-
 #
-#   ::::::::> CLOUD RESOURCE MANAGER <::::::::
+#   ::::::::> Clobi RESOURCE MANAGER <::::::::
 #   Resource Manager main module / executable
 #
 #   Contact: http://gehrcke.de
