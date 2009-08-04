@@ -1,4 +1,4 @@
-﻿# -*- coding: UTF-8 -*-
+# -*- coding: UTF-8 -*-
 #
 #   ::::::::> Clobi JOB AGENT <::::::::
 #
@@ -493,3 +493,4 @@ if __name__ == "__main__":
     # create module logger
     logger = logging.getLogger("jobagent.py")
     main()
+

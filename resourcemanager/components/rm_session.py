@@ -1,4 +1,4 @@
-﻿# -*- coding: UTF-8 -*-
+# -*- coding: UTF-8 -*-
 #
 #   ::::::::> Clobi RESOURCE MANAGER <::::::::
 #   Resource Manager Session module

@@ -1,4 +1,4 @@
-﻿# -*- coding: UTF-8 -*-
+# -*- coding: UTF-8 -*-
 #
 #   ::::::> Clobi CONFIGPARSER MODULE WITH ZIP/STRING SUPPORT <::::::
 #
