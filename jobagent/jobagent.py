@@ -157,7 +157,6 @@ class SQS(object):
 
         self.generate_queues_priorities_names(initial_highest_priority)
 
-
     def generate_queues_priorities_names(self, highest_priority):
         """
         Populate self.queues_priorities_names:
@@ -281,8 +280,6 @@ class JobAgent(object):
             return
         self.sqs = SQS(self.inicfg, self.highest_priority)
         self.sqs.check_queues()
-
-
 
 
 def config_to_string(configparserconfig):
@@ -488,7 +485,7 @@ def parseargs():
     # if not options.userdata_file_path or not options.instanceid_file_path:
         # parser.error('both, --userdatafile and --instanceidfile must be set!')
     if not options.userdata_file_path :
-        parser.error('--userdatafile must be set!')    
+        parser.error('--userdatafile must be set!')
     return options
 
 if __name__ == "__main__":
