@@ -600,12 +600,12 @@ class Session(object):
                 nbcloud.query_factory_rp()
                 return
 
-    def nimbus_query_workspace(self, cloud_index, eprfile):
+    def nimbus_query_workspace(self, cloud_index, eprfile, vm_id=None):
         for nbcloud in self.nimbus_clouds:
             if nbcloud.cloud_index == cloud_index:
                 self.logger.info(("order to query Workspace with EPR file %s"
                     " on Nimbus Cloud %s" % (eprfile, cloud_index)))
-                nbcloud.query_workspace(eprfile_path=eprfile)
+                nbcloud.query_workspace(eprfile_path=eprfile,vm_id=vm_id)
                 return
 
     def nimbus_destroy_workspace(self, cloud_index, eprfile, vm_id=None):
@@ -1138,7 +1138,7 @@ class NimbusCloud(object):
         else:
             self.logger.error("subprocess did not start")
 
-    def query_workspace(self, eprfile_path):
+    def query_workspace(self, eprfile_path, vm_id=None):
         """
         Invoke Workspace RP Query, only using a given EPR file. No "vm-xxxx"
         context given here.
@@ -1150,6 +1150,8 @@ class NimbusCloud(object):
         # generate cloudclient_run_order
         cloudclient_run_order = {}
         cloudclient_run_order['action'] = "rpquery"
+        if vm_id:
+            cloudclient_run_order['vm_id'] = vm_id
 
         timestr = time.strftime("%y%m%d%H%M%S",time.localtime())
         run_id = ("workspace_rp_query-nb%s-%s" %(self.cloud_index,timestr))
@@ -1217,6 +1219,14 @@ class NimbusCloud(object):
         Delete cloutclient_run_order list item after analysis (only if success
         or error; do nothing of subprocess is not returned).
         """
+        def get_logfilepath_and_log(clclrunorder):
+            path = clclrunorder['clclwrapper'].stdouterr_file_path
+            if os.path.exists(path):
+                log = open(path).read()
+            else:
+                log = "error: logfile does not exist"
+            return (path, log)
+
         delete_indices = []
         vm_new_state = None
         for idx, clclrunorder in enumerate(self.cloudclient_run_orders):
@@ -1228,12 +1238,13 @@ class NimbusCloud(object):
                     if clclrunorder['action'] == "deploy":
                         vm_new_state = 'deploy_error'
                     elif clclrunorder['action'] == "destroy":
-                        vm_new_state = 'destroy_error(terminated?)'
-                        if os.path.exists(
-                        clclrunorder['clclwrapper'].stdouterr_file_path):
-                            self.logger.error("content of destroy log file %s: %s"
-                                % (clclrunorder['clclwrapper'].stdouterr_file_path,
-                                open(clclrunorder['clclwrapper'].stdouterr_file_path).read()))
+                        vm_new_state = 'destroy_error'
+                        self.logger.error("destroy log file %s: %s"
+                            % get_logfilepath_and_log(clclrunorder))
+                    elif clclrunorder['action'] == "rpquery":
+                        vm_new_state = 'rpquery_error'
+                        self.logger.error("rpquery log file %s: %s"
+                            % get_logfilepath_and_log(clclrunorder))
                 else:
                     if clclrunorder['action'] == "deploy":
                         vm_new_state = 'started'
@@ -1242,20 +1253,17 @@ class NimbusCloud(object):
                         self.logger.info(("Workspace destroy subprocess "
                             " successfully ended. Content of rpquery log file"
                             "  %s: %s"
-                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
-                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
+                            % get_logfilepath_and_log(clclrunorder)))
                     elif clclrunorder['action'] == "rpquery":
                         self.logger.info(("Workspace RP Query subprocess "
                             " successfully ended. Content of rpquery log file"
                             "  %s: %s"
-                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
-                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
+                            % get_logfilepath_and_log(clclrunorder)))
                     elif clclrunorder['action'] == "factoryrp":
                         self.logger.info(("Factory RP Query subprocess "
                             " successfully ended. Content of factoryrp log file"
                             "  %s: %s"
-                            % (clclrunorder['clclwrapper'].stdouterr_file_path,
-                            open(clclrunorder['clclwrapper'].stdouterr_file_path).read())))
+                            % get_logfilepath_and_log(clclrunorder)))
 
                 # when there was an action that changed the state of *any*
                 # workspace *AND* this workspace is attributive to a VM ID,
