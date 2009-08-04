@@ -232,7 +232,7 @@ class JobAgent(object):
         self.logger.debug("initialize JobAgent object")
 
         userdata_file_path = check_file(start_options.userdata_file_path)
-        instanceid_file_path = check_file(start_options.instanceid_file_path)
+        #instanceid_file_path = check_file(start_options.instanceid_file_path)
 
         startconfig = get_startconfig_from_userdata(userdata_file_path)
         logger.debug("startconfig: \n%s" % config_to_string(startconfig))
@@ -249,9 +249,9 @@ class JobAgent(object):
         self.inicfg.aws_accesskey = startconfig.get('userdata','accesskey')
         self.inicfg.aws_secretkey = startconfig.get('userdata','secretkey')
 
-        self.logger.debug("read instance ID from %s" % instanceid_file_path)
-        self.inicfg.instance_id = open(instanceid_file_path).read()
-        self.logger.info("instance ID: %s" % self.inicfg.instance_id)
+        #self.logger.debug("read instance ID from %s" % instanceid_file_path)
+        #self.inicfg.instance_id = open(instanceid_file_path).read()
+        #self.logger.info("instance ID: %s" % self.inicfg.instance_id)
 
         self.logger.debug("get number of cores for this VM..")
         nbr_cores = get_number_of_cores()
@@ -478,15 +478,17 @@ def parseargs():
 
     parser.add_option('-u', '--userdatafile', dest='userdata_file_path',
                       help='file containing userdata string')
-    parser.add_option('-i', '--instanceidfile', dest='instanceid_file_path',
-                      help='file containing instanceid string')
+    #parser.add_option('-i', '--instanceidfile', dest='instanceid_file_path',
+    #                  help='file containing instanceid string')
 
     # now read in the given arguments (from sys.argv by default)
     (options, args) = parser.parse_args()
 
     # now check the logical consistence...
-    if not options.userdata_file_path or not options.instanceid_file_path:
-        parser.error('both, --userdatafile and --instanceidfile must be set!')
+    # if not options.userdata_file_path or not options.instanceid_file_path:
+        # parser.error('both, --userdatafile and --instanceidfile must be set!')
+    if not options.userdata_file_path :
+        parser.error('--userdatafile must be set!')    
     return options
 
 if __name__ == "__main__":
