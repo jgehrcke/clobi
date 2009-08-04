@@ -409,17 +409,20 @@ class Session(object):
         """
         config = SafeConfigParserStringZip()
         config.add_section('userdata')
-        config.set('userdata','sessionid',str(self.session_id))
-        config.set('userdata','vmid',str(vm_id))
+        config.set('userdata','sessionid',self.session_id)
+        config.set('userdata','vmid',vm_id)
+        config.set('userdata','accesskey',self.inicfg.aws.accesskey)
+        config.set('userdata','secretkey',self.inicfg.aws.secretkey)
         cfg = config.write_to_string()
         zipcfg = config.write_to_zipped_string()
         b64zipcfg = base64.b64encode(zipcfg)
-        self.logger.info(("generated userdata: \n%s\n(length: %s)"
-            % (cfg,len(cfg))))
-        self.logger.debug(("zip(generated userdata): %s\n(length: %s)"
-            % (repr(zipcfg),len(zipcfg))))
-        self.logger.debug(("base64(zip(generated userdata)): %s\n(length: %s)"
-            % (b64zipcfg,len(b64zipcfg))))
+        #self.logger.info(("generated userdata: \n%s\n(length: %s)"
+        #    % (cfg,len(cfg))))
+        #self.logger.debug(("zip(generated userdata): %s\n(length: %s)"
+        #    % (repr(zipcfg),len(zipcfg))))
+        #self.logger.debug(("base64(zip(generated userdata)): %s\n(length: %s)"
+        #    % (b64zipcfg,len(b64zipcfg))))
+        self.logger.debug("generated userdata for %s." % vm_id)
         return b64zipcfg
 
     def nbx(self, string):
