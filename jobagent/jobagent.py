@@ -54,8 +54,10 @@ def main():
         jobagent = JobAgent(start_options)
         jobagent.init_sdb()
         jobagent.init_sqs()
+        # I (the JobAgent) now tell to SimpleDB that I've started up :-)
+        jobagent.sdb.register_ja_started()
     except:
-        logger.critical("Job Agend ended exceptionally. Try to save some logs.")
+        logger.critical("Job Agent ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
     finally:
         # some other cleanup
@@ -125,10 +127,37 @@ class SimpleDB(object):
         """
         self.logger.debug("Retrieve HighestPriority item from SDB")
         item = self.boto_domainobj_session.get_item('session_props')
-        hp = item['HighestPriority']
-        self.logger.info(("got HighestPriority from SDB: %s" % hp))
-        return hp
+        if item is not None:
+            try:
+                hp = item['HighestPriority']
+                self.logger.info(("got HighestPriority from SDB: %s" % hp))
+                return hp
+            except KeyError:
+                self.logger.critical(("No 'HighestPriority' value set in SDB!"
+                    " Means that something went very wrong. It must be set by RM"
+                    " before any VM is started up. I'll exit now"))
+                sys.exit(1)
+        else:
+            self.logger.critical(("No 'session_props' item set in SDB! This"
+                " means that something went very wrong. It must be set by RM"
+                " before any VM is started up. I'll exit now"))
+            sys.exit(1)
 
+    def register_ja_started(self):
+        item = self.boto_domainobj_session.get_item(self.inicfg.vm_id)
+        timestr = timestring()
+        if item is not None:
+            self.logger.info(("updating SDB item %s with 'status=JA_running' "
+                "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
+            item['status'] = 'JA_running'
+            item['JA_startuptime'] = timestr
+            item.save()
+        else:
+            self.logger.critical(("No %s item set in SDB! This"
+                " means that something went very wrong. It must be set by RM"
+                " before any VM is started up. I'll exit now"
+                % self.inicfg.vm_id))
+            sys.exit(1)
 
 class SQS(object):
     """
@@ -244,7 +273,7 @@ class JobAgent(object):
         self.logger.debug("process ConfigParser config delivered by userdata")
         self.inicfg = Object()
         self.inicfg.sessionid = startconfig.get('userdata','sessionid')
-        self.inicfg.vmid = startconfig.get('userdata','vmid')
+        self.inicfg.vm_id = startconfig.get('userdata','vmid')
         self.inicfg.aws_accesskey = startconfig.get('userdata','accesskey')
         self.inicfg.aws_secretkey = startconfig.get('userdata','secretkey')
 
@@ -280,6 +309,8 @@ class JobAgent(object):
             return
         self.sqs = SQS(self.inicfg, self.highest_priority)
         self.sqs.check_queues()
+
+
 
 
 def config_to_string(configparserconfig):
