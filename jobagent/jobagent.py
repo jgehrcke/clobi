@@ -30,6 +30,8 @@ import base64
 import subprocess
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
+from components.utils import (check_dir, check_file, timestring, backup_file,
+    Tee, Object)
 
 sys.path.append("components")
 import boto
@@ -358,37 +360,6 @@ def get_startconfig_from_userdata(userdata_file_path):
     config.read_from_zipped_string(zipcfg)
     return config
 
-def timestring():
-    return time.strftime("%Y%m%d-%H%M%S", time.localtime())
-
-class Tee(object):
-    """
-    Provides a write()-method that writes to two filedescriptors.
-
-    One should be standard-stdout/err and the other should describe a real file.
-    If sys.stdout is replaced with an instance of this `Tee`-class and sys.stderr is
-    set to sys.stdout, all stdout+stderr of the script is collected to console and
-    to file at the same time.
-    """
-    def __init__(self, stdouterr, file, pipe_write=None):
-        self.stdouterr = stdouterr
-        self.file = file
-        self.pipe_write = pipe_write
-
-    def write(self, data):
-        self.stdouterr.write(data)
-        try:
-          self.file.write(data)
-          self.file.flush()
-        except:
-          pass
-
-        if self.pipe_write is not None:
-            os.write(self.pipe_write, data)
-
-    def flush(self):
-        self.stdouterr.flush()
-        self.file.flush()
 
 class JobAgentLogger(object):
     """
@@ -446,46 +417,6 @@ class JobAgentLogger(object):
         self.logger.error(msg)
     def critical(self, msg):
         self.logger.critical(msg)
-
-class Object:
-    """
-    This class is just for convenient config hierarchy in other classes
-    """
-    pass
-
-
-def check_file(file):
-    """
-    Check if a given file exists and really is a file (e.g. not a directory)
-    In errorcase the script is stopped.
-
-    @return: the absolute path of the file
-    """
-    logger.debug("check_file("+file+")")
-    if not os.path.exists(file):
-        logger.critical(file+' does not exist. Exit.')
-        sys.exit(file+' does not exist')
-    if not os.path.isfile(file):
-        logger.critical(file+' is not a file. Exit.')
-        sys.exit(file+' is not a file.')
-    return os.path.abspath(file)
-
-
-def check_dir(dir):
-    """
-    Check if a given dir exists and really is a dir (e.g. not a file)
-    In errorcase the script is stopped.
-
-    @return: the absolute path of the directory
-    """
-    logger.debug("check_dir("+dir+")")
-    if not os.path.exists(dir):
-        logger.critical(dir+' does not exist. Exit.')
-        sys.exit(1)
-    if not os.path.isdir(dir):
-        logger.critical(dir+' is not a file. Exit.')
-        sys.exit(1)
-    return os.path.abspath(dir)
 
 
 def parseargs():
