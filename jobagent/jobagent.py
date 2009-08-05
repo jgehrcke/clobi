@@ -264,8 +264,8 @@ class JobAgent(object):
         userdata_file_path = check_file(start_options.userdata_file_path)
         #instanceid_file_path = check_file(start_options.instanceid_file_path)
 
-        startconfig = get_startconfig_from_userdata(userdata_file_path)
-        logger.debug("startconfig: \n%s" % config_to_string(startconfig))
+        startconfig = self.get_startconfig_from_userdata(userdata_file_path)
+        logger.debug("startconfig: \n%s" % self.config_to_string(startconfig))
         # The startconfig was created by the ResourceManager:
         # config.add_section('userdata')
         # config.set('userdata','sessionid',self.session_id)
@@ -284,7 +284,7 @@ class JobAgent(object):
         #self.logger.info("instance ID: %s" % self.inicfg.instance_id)
 
         self.logger.debug("get number of cores for this VM..")
-        nbr_cores = get_number_of_cores()
+        nbr_cores = self.get_number_of_cores()
         if nbr_cores:
             self.inicfg.nbr_cores = nbr_cores
             self.logger.info("number of cores: %s" % nbr_cores)
@@ -312,53 +312,48 @@ class JobAgent(object):
         self.sqs = SQS(self.inicfg, self.highest_priority)
         self.sqs.check_queues()
 
+    def get_startconfig_from_userdata(self, userdata_file_path):
+        """
+        This function inverts the actions done in
+        ResourceManager.Session.generate_userdata()
+        This means:
+            - decode strong with b64
+            - make ConfigParser config out of zipped string using
+              SafeConfigParserStringZip
+        """
+        logger.debug("read userdata file %s ..." % userdata_file_path)
+        b64zipcfg = open(userdata_file_path).read()
+        zipcfg = base64.b64decode(b64zipcfg)
+        config = SafeConfigParserStringZip()
+        logger.debug("re-create ConfigParser config from zipped string..")
+        config.read_from_zipped_string(zipcfg)
+        return config
 
+    def config_to_string(self, configparserconfig):
+        configstringlist = []
+        for section in configparserconfig.sections():
+            for option in configparserconfig.options(section):
+                val = configparserconfig.get(section,option)
+                configstringlist.append("%s:%s=%s" % (section,option,val))
+        return '\n'.join(configstringlist)
 
-
-def config_to_string(configparserconfig):
-    configstringlist = []
-    for section in configparserconfig.sections():
-        for option in configparserconfig.options(section):
-            val = configparserconfig.get(section,option)
-            configstringlist.append("%s:%s=%s" % (section,option,val))
-    return '\n'.join(configstringlist)
-
-
-def get_number_of_cores():
-    sp = subprocess.Popen(
-        args=['grep -c processor /proc/cpuinfo'],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        shell=True)
-    stdout, stderr = sp.communicate()
-    if stderr:
-        logger.error("'grep -c processor /proc/cpuinfo' error: %s" % stderr)
-        return False
-    try:
-        nbr_cpus = int(stdout)
-    except TypeError:
-        logger.error(("stdout of 'grep -c processor /proc/cpuinfo' was not a"
-            " number: %s" % stdout))
-        return False
-    return nbr_cpus
-
-
-def get_startconfig_from_userdata(userdata_file_path):
-    """
-    This function inverts the actions done in
-    ResourceManager.Session.generate_userdata()
-    This means:
-        - decode strong with b64
-        - make ConfigParser config out of zipped string using
-          SafeConfigParserStringZip
-    """
-    logger.debug("read userdata file %s ..." % userdata_file_path)
-    b64zipcfg = open(userdata_file_path).read()
-    zipcfg = base64.b64decode(b64zipcfg)
-    config = SafeConfigParserStringZip()
-    logger.debug("re-create ConfigParser config from zipped string..")
-    config.read_from_zipped_string(zipcfg)
-    return config
+    def get_number_of_cores(self):
+        sp = subprocess.Popen(
+            args=['grep -c processor /proc/cpuinfo'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True)
+        stdout, stderr = sp.communicate()
+        if stderr:
+            logger.error("'grep -c processor /proc/cpuinfo' error: %s" % stderr)
+            return False
+        try:
+            nbr_cpus = int(stdout)
+        except TypeError:
+            logger.error(("stdout of 'grep -c processor /proc/cpuinfo' was not a"
+                " number: %s" % stdout))
+            return False
+        return nbr_cpus
 
 
 class JobAgentLogger(object):
