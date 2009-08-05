@@ -31,9 +31,10 @@ import hashlib
 import random
 import time
 import subprocess
-import shutil
 import base64
 import fileinput
+import traceback
+import collections
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
 from components.cfg_parse_strzip import SafeConfigParserStringZip
@@ -309,6 +310,44 @@ class SimpleDBSession(object):
         item['RM_startuptime'] = timestr
         item.save()
 
+    def count_jobagents(self):
+        """
+        Perform a SELECT query on SDB to count all VM items where the state is
+        one of 'JA_running', 'JA_kill_after_job_recognized',
+        'RM_kill_after_job_ordered'
+        """
+        self.logger.info("Perform SDB query to count all running job agents..")
+
+        selectstr = ("SELECT count(*) FROM `%s` WHERE `status` = 'JA_running'"
+            " or `status` = 'JA_kill_after_job_recognized' or"
+            " `status` = 'RM_kill_after_job_ordered'"
+            % self.boto_domainobj_session.name)
+
+        # http://docs.amazonwebservices.com/AmazonSimpleDB/2009-04-15/
+        # DeveloperGuide/CountingDataSelect.html :
+        # If you want to count the number of items in a result set
+        # instead of returning the items, use count(*). Instead of
+        # returning a list of items, Amazon SimpleDB returns a single
+        # item called Domain with a Count attribute.
+
+        # hence, we expect to receive only ONE item, but get a generator:
+        items = self.boto_domainobj_session.select(selectstr)
+        itmlist = list(items)
+        if len(itmlist) == 1:
+            try:
+                nbr = int(itmlist[0]['Count'])
+                self.logger.info("running-jobagent-entries in SDB: %s" % nbr)
+                return nbr
+            except:
+                self.logger.error("Received one item, but a weird one")
+                self.logger.error("Traceback:\n%s"%traceback.format_exc())
+                return False
+        else:
+            self.logger.error(("length of result is not 1, as expected: %s "
+                % repr(items)))
+            return False
+
+
     def get_highest_priority(self):
         """
         Get HighestPriority flag from SDB
@@ -407,6 +446,42 @@ class Session(object):
         self.inicfg = None
         self.nimbus_clouds = None
         self.ec2 = None
+        self.save_vms_file_last_change_time = 0
+
+    def get_started_vms_string(self):
+        """
+        Parse save.session.vms file and build "histogram" of how many VMs are
+        in state "started" on which cloud.
+        Build string like "EC2: 3    Nb1: 15    Nb2: 1" out of it and return.
+        Parse only, if file was changed since last time read.
+        """
+        really_last_modified = os.path.getmtime(self.save_vms_file_path)
+        if self.save_vms_file_last_change_time != really_last_modified:
+            self.logger.debug(("save.session.vms was modified, so read it "
+                "again to build started_vms_string"))
+            self.save_vms_file_last_change_time = really_last_modified
+            # open file and make sure it's closed afterwards with `with`
+            with open(self.save_vms_file_path) as save_vms_file:
+                hist = collections.defaultdict(int)
+                for line in save_vms_file:
+                    data = line.rstrip().split(";")
+                    if len(data) >= 3:
+                        vm_id = data[0]
+                        cloudname = data[1]
+                        status = data[2]
+                        if status == 'started':
+                            hist[cloudname] += 1
+
+            # sort by key and assamble string
+            started_vms_string_list = []
+            keys = hist.keys()
+            keys.sort()
+            for key in keys:
+                started_vms_string_list.append("%s: %s" % (key, hist[key]))
+            started_vms_string = '   '.join(started_vms_string_list)
+            self.logger.debug("started_vms_string: %s" % started_vms_string)
+            return started_vms_string
+        return False
 
     def nimbus_cloud_indices(self):
         """
@@ -458,53 +533,57 @@ class Session(object):
         If not found, return False.
         """
         fd = open(self.save_vms_file_path)
-        for line in fd:
-            if line.startswith(vm_id):
-                # this is the entire dict to be populated with data
-                vm_info = {}
-                vm_info['vm_id'] = None
-                vm_info['Nimbus'] = None
-                vm_info['cloudindex'] = None
-                vm_info['EC2'] = None
-                vm_info['status'] = None
-                vm_info['eprfile'] = None
-                vm_info['instanceid'] = None
-                vm_info['reservationid'] = None
+        try:
+            for line in fd:
+                if line.startswith(vm_id):
+                    # this is the entire dict to be populated with data
+                    vm_info = {}
+                    vm_info['vm_id'] = None
+                    vm_info['Nimbus'] = None
+                    vm_info['cloudindex'] = None
+                    vm_info['EC2'] = None
+                    vm_info['status'] = None
+                    vm_info['eprfile'] = None
+                    vm_info['instanceid'] = None
+                    vm_info['reservationid'] = None
 
-                # assume the following data format:
-                # nimbus: vmid;nbX;status[;eprfile]
-                # ec2:    vmid;ec2;status[;reservationid;instanceid]
-                data = line.rstrip().split(";")
-                if len(data) >= 3:
-                    vm_id = data[0]
-                    cloudname = data[1]
-                    status = data[2]
+                    # assume the following data format:
+                    # nimbus: vmid;nbX;status[;eprfile]
+                    # ec2:    vmid;ec2;status[;reservationid;instanceid]
+                    data = line.rstrip().split(";")
+                    if len(data) >= 3:
+                        vm_id = data[0]
+                        cloudname = data[1]
+                        status = data[2]
 
-                    vm_info['vm_id'] = vm_id
-                    vm_info['status'] = status
-                    if self.nbx(cloudname):
-                        vm_info['Nimbus'] = True
-                        vm_info['cloudindex'] = self.nbx(cloudname)
-                        vm_info['EC2'] = False
-                        if len(data) == 4:
-                            vm_info['eprfile'] = data[3]
-                    elif cloudname.lower() == "ec2":
-                        vm_info['Nimbus'] = False
-                        vm_info['cloudindex'] = False
-                        vm_info['EC2'] = True
-                        if len(data) == 5:
-                            vm_info['instanceid'] = data[4]
-                            vm_info['reservationid'] = data[3]
+                        vm_info['vm_id'] = vm_id
+                        vm_info['status'] = status
+                        if self.nbx(cloudname):
+                            vm_info['Nimbus'] = True
+                            vm_info['cloudindex'] = self.nbx(cloudname)
+                            vm_info['EC2'] = False
+                            if len(data) == 4:
+                                vm_info['eprfile'] = data[3]
+                        elif cloudname.lower() == "ec2":
+                            vm_info['Nimbus'] = False
+                            vm_info['cloudindex'] = False
+                            vm_info['EC2'] = True
+                            if len(data) == 5:
+                                vm_info['instanceid'] = data[4]
+                                vm_info['reservationid'] = data[3]
+                        else:
+                            self.logger.error(("no valid nimbus cloud name "
+                                "found"))
+                            return False
+                        return vm_info
                     else:
-                        self.logger.error("no valid nimbus cloud name found")
+                        self.logger.error(("get_vm_info_from_file(): There must "
+                            " be at least 3 data fields. Found %s" % len(data)))
                         return False
-                    return vm_info
-                else:
-                    self.logger.error(("get_vm_info_from_file(): There should "
-                        " be at least 3 data fields. Found %s" % len(data)))
-                    return False
-        self.logger.error(("get_vm_info_from_file():couldn't find VM ID %s in"
-            " file %s" % (vm_id, self.save_vms_file_path)))
+            self.logger.error(("get_vm_info_from_file():couldn't find VM ID %s"
+                " in file %s" % (vm_id, self.save_vms_file_path)))
+        finally:
+            fd.close()
         return False
 
     def append_save_vms_file(self, savestring):
@@ -680,7 +759,7 @@ class Session(object):
             self.logger.info("new session: set up missing stuff...")
             self.generate_session_id()
             self.set_up_simple_db_from_scratch()
-            #self.set_up_sqs_from_scratch()
+            self.set_up_sqs_from_scratch()
             #self.logger.info("save all generated config to files...")
             #self.save_extended_config_to_file()
             #self.sdb_session.save_sdb_session_config_to_file()
@@ -1460,8 +1539,7 @@ class EC2(object):
                     image_id=self.ami_id,
                     instance_type=self.instancetype)
             except:
-                import traceback
-                traceback.print_exc()
+                self.logger.error("Traceback:\n%s"%traceback.format_exc())
                 request_success = False
 
             if request_success:
@@ -1495,8 +1573,7 @@ class EC2(object):
                     % (instanceid, inststate)))
             except:
                 inststate = None
-                import traceback
-                traceback.print_exc()
+                self.logger.error("Traceback:\n%s"%traceback.format_exc())
             if inststate:
                 if inststate != 'pending':
                     if inststate == 'running':

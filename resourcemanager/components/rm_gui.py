@@ -81,13 +81,15 @@ class ResourceManagerGUI(object):
         self.txt_sqs_upd = urwid.Text('', align='left', wrap='any')
         self.txt_cloud = urwid.Text('', align='left')
         self.txt_name = urwid.Text('', align='left')
+        self.txt_started_vms = urwid.Text('', align='left', wrap='any')
         self.hd_pl_cl_1 = 	urwid.Pile([
             urwid.Text('SESSION INFO', align='center'),
             urwid.Divider("-"),
-            urwid.Columns([('fixed', 12, urwid.Text('Name:')), self.txt_name]),
-            urwid.Columns([('fixed', 12, urwid.Text('Clouds:')), self.txt_cloud]),
-            urwid.Columns([('fixed', 12, urwid.Text('SQS update:')), self.txt_sqs_upd]),
-            urwid.Columns([('fixed', 12, urwid.Text('SDB update:')), self.txt_sdb_upd])
+            urwid.Columns([('fixed', 13, urwid.Text('Name:')), self.txt_name]),
+            urwid.Columns([('fixed', 13, urwid.Text('Clouds:')), self.txt_cloud]),
+            urwid.Columns([('fixed', 13, urwid.Text('SQS update:')), self.txt_sqs_upd]),
+            urwid.Columns([('fixed', 13, urwid.Text('SDB update:')), self.txt_sdb_upd]),
+            urwid.Columns([('fixed', 13, urwid.Text('started VMs:')), self.txt_started_vms]),
             ])
 
         self.txt_sqs_jobs = urwid.Text('P01: 27 jobs\nP02: 13 jobs', align='left', wrap='any')
@@ -97,21 +99,23 @@ class ResourceManagerGUI(object):
             self.txt_sqs_jobs,
             ])
 
+        self.txt_total_nbr_jas = urwid.Text('', align='left', wrap='any')
         self.hd_pl_cl_3 = 	urwid.Pile([
             urwid.Text('SDB DATA', align='center'),
             urwid.Divider("-"),
-            urwid.Text(('vms','started VMs:')),
-            urwid.Text('EC2:    Nb1:    Nb2:    ', align='left', wrap='any'),
-            urwid.Text(('runningvms','running VMs:')),
-            urwid.Text('EC2:    Nb1:    Nb2:    ', align='left', wrap='any'),
+            urwid.Text(('runningvms','running Job Agents:')),
+            urwid.Columns([('fixed', 9, urwid.Text('  total: ')), self.txt_total_nbr_jas])
             ])
 
+        # these are the initial values displayed in the UI info area
         self.uiinfo_dict = dict(
             txt_name='',
             txt_sdb_upd='',
             txt_sqs_upd='',
             txt_cloud='',
-            txt_sqs_jobs='')
+            txt_sqs_jobs='',
+            txt_total_nbr_jas='',
+            txt_started_vms='',)
 
         self.header_body = urwid.LineBox(urwid.Columns([
             self.hd_pl_cl_1,
@@ -277,6 +281,8 @@ class ResourceManagerGUI(object):
         self.txt_sdb_upd.set_text(self.uiinfo_dict['txt_sdb_upd'])
         self.txt_name.set_text(self.uiinfo_dict['txt_name'])
         self.txt_sqs_jobs.set_text(self.uiinfo_dict['txt_sqs_jobs'])
+        self.txt_total_nbr_jas.set_text(self.uiinfo_dict['txt_total_nbr_jas'])
+        self.txt_started_vms.set_text(self.uiinfo_dict['txt_started_vms'])
         self.main_loop.draw_screen()
 
     def listbox_extend(self, extension):

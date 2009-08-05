@@ -25,6 +25,7 @@ import os
 import sys
 import tarfile
 import time
+import shutil
 
 
 # create module logger

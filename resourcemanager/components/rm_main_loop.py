@@ -142,6 +142,18 @@ class ResourceManagerMainLoop(threading.Thread):
             # do it based on self.session.inicfg.ec2.instance_state_pollinterval
             self.check_runinstances_request_states_if_necessary()
 
+            # this basically builds the `started_vms_string` and displays it
+            self.display_started_vms()
+
+    def display_started_vms(self):
+        """
+        Generate a string like "EC2: 3    Nb1: 15    Nb2: 1" and display it i
+        the UI info panel.
+        """
+        started_vms_string = self.session.get_started_vms_string()
+        if started_vms_string:
+            self.request_update_uiinfo(dict(txt_started_vms=started_vms_string))
+
     def check_runinstances_request_states_if_necessary(self):
         """
         Check states of EC2 instances that were requested to start recently.
@@ -303,6 +315,13 @@ class ResourceManagerMainLoop(threading.Thread):
 
     def sdb_check(self):
         self.logger.debug("ResourceManagerMainLoop.sdb_check() called")
+
+        # instruct to receive total number of running job agents.
+        # if not False, then it is an integer :-)
+        nbr_running_jobagents = self.session.sdb_session.count_jobagents()
+        if nbr_running_jobagents:
+            self.request_update_uiinfo(dict(
+                txt_total_nbr_jas=str(nbr_running_jobagents)))
         self.sdb_last_checked = time.time()
 
     def sqs_check(self):
