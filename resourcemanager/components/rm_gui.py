@@ -68,7 +68,7 @@ class ResourceManagerGUI(object):
         self.pipe_log_prefix = ''
         self.pipe_cmdresp_prefix = ''
 
-        text_header = "☺☺☺ CLOUD RESOURCE MANAGER ✔ http://gehrcke.de ☺☺☺"
+        text_header = "◆◆ Clobi ━ Resource Manager ━ http://gehrcke.de ◆◆"
 
         # UI LAYOUT in two levels
         # top widget:   FRAME with HEADER, BODY, FOOTER

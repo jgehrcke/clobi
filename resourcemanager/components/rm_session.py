@@ -106,8 +106,8 @@ class SQSSession(object):
             attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
             jobnbr = attr['ApproximateNumberOfMessages']
             self.queue_jobnbrs_laststate[prio] = jobnbr
-            self.logger.info(("queue for priority %s:\napprox nbr of jobs: %s"
-                 % (prio, jobnbr)))
+            self.logger.info(("approximate number of jobs in queue for "
+                "priority %s: %s" % (prio, jobnbr)))
 
     def create_queues(self, resume = False):
         """

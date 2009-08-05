@@ -307,7 +307,7 @@ class ResourceManagerMainLoop(threading.Thread):
             txt_sqs_upd=str(int(round(next_sqs_check_in))).zfill(5)+" s",
             txt_sdb_upd=str(int(round(next_sdb_check_in))).zfill(5)+" s"))
         if next_sqs_check_in == 0:
-            self.logger.info("Automatic SQS monitoring data update triggered.")
+            self.logger.info("Automatic SQS job number update triggered.")
             self.sqs_check()
         if next_sdb_check_in == 0:
             self.logger.info("Automatic SDB monitoring data update triggered.")
