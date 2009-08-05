@@ -299,14 +299,26 @@ class SimpleDBSession(object):
         self.logger.info("SDB domain "+domainname+" is now available.")
         return domainobj
 
+    def register_vm_started(self, vm_id):
+        item = self.boto_domainobj_session.new_item(vm_id)
+        timestr = timestring()
+        self.logger.info(("creating SDB item %s with 'status=RM_started' and"
+            " 'RM_startuptime=%s'" % (vm_id, timestr)))
+        item['status'] = 'RM_started'
+        item['RM_startuptime'] = timestr
+        item.save()
+
     def get_highest_priority(self):
         """
         Get HighestPriority flag from SDB
         """
         item = self.boto_domainobj_session.get_item('session_props')
-        self.highest_priority = item['HighestPriority']
-        self.logger.info(("got HighestPriority from SDB: %s"
-            % self.highest_priority))
+        if item is not None:
+            self.highest_priority = item['HighestPriority']
+            self.logger.info(("got HighestPriority from SDB: %s"
+                % self.highest_priority))
+        else:
+            self.logger.error("HighestPriority item does not exist")
 
     def create_session_props_item(self):
         """
@@ -666,7 +678,7 @@ class Session(object):
         else:
             self.logger.info("new session: set up missing stuff...")
             self.generate_session_id()
-            #self.set_up_simple_db_from_scratch()
+            self.set_up_simple_db_from_scratch()
             #self.set_up_sqs_from_scratch()
             #self.logger.info("save all generated config to files...")
             #self.save_extended_config_to_file()
@@ -1251,6 +1263,8 @@ class NimbusCloud(object):
                 else:
                     if clclrunorder['action'] == "deploy":
                         vm_new_state = 'started'
+                        self.session.sdb_session.register_vm_started(
+                            clclrunorder['vm_id'])
                     elif clclrunorder['action'] == "destroy":
                         vm_new_state = 'manually_destroyed'
                         self.logger.info(("Workspace destroy subprocess"
@@ -1486,6 +1500,8 @@ class EC2(object):
                 if inststate != 'pending':
                     if inststate == 'running':
                         new_state = 'started'
+                        self.session.sdb_session.register_vm_started(
+                            clclrunorder['vm_id'])
                     if inststate == 'terminated' or inststate == 'shutting-down':
                         new_state = 'error'
                     self.session.update_save_vms_file_entry(
@@ -1660,6 +1676,10 @@ def backup_file(file_path, backup_dir_path, archive_from = None):
     else:
         logger.debug(("%s and/or %s does not exist"
             % (file_path, backup_dir_path)))
+
+
+def timestring():
+    return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
 
 def check_file(file):
