@@ -1351,11 +1351,11 @@ class NimbusCloud(object):
 
     def grid_proxy_init(self):
         # define proxy file and grid-proxy-init logfile
-        timestring = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+        timestr = timestring()
         gpi_run_dir = os.path.join(self.session.run_dir, "grid-proxy-init")
         if not os.path.exists(gpi_run_dir):
             os.mkdir(gpi_run_dir)
-        gp_file_name = "cloud_%s_%s.proxy" % (self.cloud_index, timestring)
+        gp_file_name = "cloud_%s_%s.proxy" % (self.cloud_index, timestr)
         grid_proxy_file_path = os.path.join(gpi_run_dir,gp_file_name)
         # define log file for grid-proxy-init program
         gpi_stdouterr_file_path = os.path.join(gpi_run_dir,gp_file_name+".log")
@@ -1527,7 +1527,7 @@ class ResourceManagerLogger(object):
             os.mkdir(logdir)
 
         # create log filenames (with prefix from time)
-        log_filename_prefix = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+        log_filename_prefix = timestring()
         rm_log_file_path = os.path.join(logdir,log_filename_prefix+"_RM.log")
         boto_log_file_path = os.path.join(logdir,log_filename_prefix+"_boto.log")
 
