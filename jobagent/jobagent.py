@@ -277,13 +277,28 @@ class SQS(object):
 
     def get_job(self):
         """
-
+        Step through `self.queues_priorities_botosqsqueueobjs` from high to
+        low priorities and try to receive *one* new message, representing one
+        new job.
         """
-        #
-        #
-        #return (sqsmsg, sqsmsg_receipt_handle)
-        # else return (False, False)
-        pass
+        keys = self.queues_priorities_botosqsqueueobjs.keys()
+        keys.sort()
+        for prio in reversed(keys):
+            self.logger.debug(("Retrieve message from queue for priority %s..."
+                % prio))
+            try:
+                message = self.queues_priorities_botosqsqueueobjs[prio].read()
+            except:
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+                message = None
+            if message is not None:
+                self.logger.info(("Received SQS message with ID %s and Receipt"
+                    " Handle %s from Queue %s."
+                    % (message.id, message.receipt_handle, message.queue.name)))
+                return message
+            else:
+                self.logger.debug("got no message.")
+        return False
 
     def update_highest_priority(self, new_highest_priority_value):
         """
@@ -388,13 +403,12 @@ class JobAgent(object):
         if alarm(self.sqs_jobs_last_polled, self.sqs_poll_job_interval):
             self.logger.debug(("SQS poll job triggered"))
             self.check_highest_priority()
-            # sqsmsg, sqsmsg_receipt_handle = self.sqs.get_job()
+            boto_sqsmsg = self.sqs.get_job()
             self.sqs_jobs_last_polled = time.time()
             # if sqsmsg:
                 # self.logger.debug("Received a new SQS job message. Init job..")
                 # self.jobs.append(Job(
-                    # sqsmsg,
-                    # sqsmsg_receipt_handle,
+                    # boto_sqsmsg,
                     # self.sdb,
                     # self.sqs))
 
@@ -534,6 +548,7 @@ class JobAgent(object):
         for section in configparserconfig.sections():
             for option in configparserconfig.options(section):
                 val = configparserconfig.get(section,option)
+                if option == 'secretkey': val = 'X'
                 configstringlist.append("%s:%s=%s" % (section,option,val))
         return '\n'.join(configstringlist)
 
