@@ -58,6 +58,7 @@ def main():
         jobagent.init_sqs()
         # I (the JobAgent) now tell to SimpleDB that I've started up :-)
         jobagent.sdb.register_ja_started()
+        jobagent.main_loop()
     except:
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -128,7 +129,7 @@ class SimpleDB(object):
         try:
             item = self.boto_domainobj_session.get_item('session_props')
         except:
-            logger.critical("Traceback:\n%s"%traceback.format_exc())
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return None
         if item is not None:
             try:
@@ -161,6 +162,25 @@ class SimpleDB(object):
                 " before any VM is started up. I'll exit now"
                 % self.inicfg.vm_id))
             sys.exit(1)
+
+    def poll_vm_softkill_flag(self):
+        """
+        Query SDB for VM status. 'RM_kill_after_job_ordered' is evaluated as
+        the "VM softkill flag". Return True if set; False otherwise
+        """
+        try:
+            self.logger.debug(("Check if VM status is set to "
+                "'RM_kill_after_job_ordered' in SDB..."))
+            item = self.boto_domainobj_session.get_attributes(
+                item_name=self.inicfg.vm_id,
+                attribute_name='status')
+            self.logger.debug(("SDB VM status: %s" % item['status']))
+            if item['status'] == 'RM_kill_after_job_ordered':
+                return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        return False
+
 
 class SQS(object):
     """
@@ -256,6 +276,9 @@ class SQS(object):
         return True
 
     def get_job(self):
+        """
+
+        """
         #
         #
         #return (sqsmsg, sqsmsg_receipt_handle)
@@ -322,6 +345,7 @@ class JobAgent(object):
         # in seconds, the higher the value, the cheaper the process..
         self.sqs_poll_job_interval = 30
         self.sdb_poll_softkill_flag_interval = 30
+        self.sdb_poll_highestprio_interval = 30
 
 
         # to be populated / changed during runtime
@@ -331,21 +355,28 @@ class JobAgent(object):
         self.jobs = None
         self.sqs_jobs_last_polled = 0
         self.sdb_softkill_flag_last_polled = 0
+        self.sdb_highestprio_last_polled = 0
         self.softkill_flag = False
+        self.jobs = []
 
     def check_highest_priority(self):
         """
         Receive HP from SDB. If changed, set self.highest_priority to new
         value AND invoke self.sqs.update_highest_priority(new_hp_value)
         """
-        new_highest_priority = self.sdb.get_highest_priority()
-        if new_highest_priority is None:
-            self.logger.critical(("The value for HighestPriority could"
-                " not be updated SDB. Hopefully it works in the next turn."))
-            return
-        if new_highest_priority != self.highest_priority:
-            self.highest_priority = new_highest_priority
-            self.sqs.update_highest_priority(new_highest_priority)
+        if alarm(
+        self.sdb_highestprio_last_polled,
+        self.sdb_poll_highestprio_interval):
+            self.logger.debug(("SDB HighestPriority update triggered"))
+            new_highest_priority = self.sdb.get_highest_priority()
+            self.sdb_highestprio_last_polled = time.time()
+            if new_highest_priority is None:
+                self.logger.critical(("The value for HighestPriority could"
+                    " not be updated SDB. Hopefully it works in the next turn."))
+                return
+            if new_highest_priority != self.highest_priority:
+                self.highest_priority = new_highest_priority
+                self.sqs.update_highest_priority(new_highest_priority)
 
     def start_new_job_if_available(self):
         """
@@ -353,18 +384,19 @@ class JobAgent(object):
         by self.sqs_poll_job_interval. If we've got a new job, then
         initialize and process it.
         """
+        self.logger.debug("start new jobs if available..")
         if alarm(self.sqs_jobs_last_polled, self.sqs_poll_job_interval):
-            self.logger.debug(("SDB HighestPriority update & SQS poll job "
-                "triggered"))
+            self.logger.debug(("SQS poll job triggered"))
             self.check_highest_priority()
-            sqsmsg, sqsmsg_receipt_handle = self.sqs.get_job()
-            if sqsmsg:
-                self.logger.debug("Received a new SQS job message. Init job..")
-                self.jobs.append(Job(
-                    sqsmsg,
-                    sqsmsg_receipt_handle,
-                    self.sdb,
-                    self.sqs))
+            # sqsmsg, sqsmsg_receipt_handle = self.sqs.get_job()
+            self.sqs_jobs_last_polled = time.time()
+            # if sqsmsg:
+                # self.logger.debug("Received a new SQS job message. Init job..")
+                # self.jobs.append(Job(
+                    # sqsmsg,
+                    # sqsmsg_receipt_handle,
+                    # self.sdb,
+                    # self.sqs))
 
     def check_and_manage_running_jobs(self):
         """
@@ -397,10 +429,11 @@ class JobAgent(object):
         if alarm(
         self.sdb_softkill_flag_last_polled,
         self.sdb_poll_softkill_flag_interval):
-            self.logger.debug("Triggered to poll softkill flag from SDB")
-            self.softkill_flag = self.sdb.poll_vm_softkill_flag(self.vm_id)
+            self.logger.debug("Triggered to poll VM softkill flag from SDB")
+            self.softkill_flag = self.sdb.poll_vm_softkill_flag()
             self.logger.debug(("SDB returned softkill flag '%s' for VM '%s'"
-                % (self.softkill_flag, self.vm_id)))
+                % (self.softkill_flag, self.inicfg.vm_id)))
+            self.sdb_softkill_flag_last_polled = time.time()
         return self.softkill_flag
 
     def main_loop(self):
@@ -415,6 +448,7 @@ class JobAgent(object):
         (2) via hardkill (reckless destruction of the VM from outside)
         (1) is checked within this loop, (2) happens autonomous ;-)
         """
+        self.logger.info("Entering Job Agent's main loop.")
         while True:
             # get & start a new job, but only if *BOTH* is fulfilled:
             # 1) currently, there are less jobs processed than nbr_cores
