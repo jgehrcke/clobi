@@ -31,7 +31,7 @@ import subprocess
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
 from components.utils import (check_dir, check_file, timestring, backup_file,
-    Tee, Object)
+    Tee, Object, alarm)
 
 sys.path.append("components")
 import boto
@@ -92,9 +92,6 @@ class SimpleDB(object):
         self.domain_name_session = self.inicfg.sessionid+"_sess"
         self.domain_name_jobs = self.inicfg.sessionid+"_jobs"
 
-        # init SimpleDB domains
-        self.check_domains()
-
     def check_domains(self):
         """
         Call self.create_domain() in resume mode for all domains this session
@@ -128,7 +125,11 @@ class SimpleDB(object):
         Get HighestPriority flag from SDB
         """
         self.logger.debug("Retrieve HighestPriority item from SDB")
-        item = self.boto_domainobj_session.get_item('session_props')
+        try:
+            item = self.boto_domainobj_session.get_item('session_props')
+        except:
+            logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return None
         if item is not None:
             try:
                 hp = item['HighestPriority']
@@ -172,6 +173,7 @@ class SQS(object):
 
         # constructor arguments
         self.inicfg = initial_jobagent_config
+        self.highest_priority = int(initial_highest_priority)
 
         self.prefix = self.inicfg.sessionid
         self.suffix = "_P"
@@ -184,17 +186,16 @@ class SQS(object):
         # to be populated..
         self.queues_priorities_botosqsqueueobjs = None
         self.queues_priorities_names = None
-        self.highest_priority = None
 
-        self.generate_queues_priorities_names(initial_highest_priority)
+        self.generate_queues_priorities_names()
 
-    def generate_queues_priorities_names(self, highest_priority):
+    def generate_queues_priorities_names(self):
         """
         Populate self.queues_priorities_names:
         For each priority put together a string: the queue name. Then put it
         into a dict with the priority (integer) as key.
         """
-        self.highest_priority = int(highest_priority)
+        self.highest_priority = int(self.highest_priority)
         self.queues_priorities_names = {}
         for p in range(1,self.highest_priority+1):
             self.queues_priorities_names[p] = ("%s%s%s"
@@ -233,7 +234,8 @@ class SQS(object):
         """
         self.logger.info("check queues with prefix "+self.prefix)
         existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
-        self.queues_priorities_botosqsqueueobjs = {}
+        if self.queues_priorities_botosqsqueueobjs is None:
+            self.queues_priorities_botosqsqueueobjs = {}
         for prio, queue_name in self.queues_priorities_names.items():
             self.logger.info(("check queue %s for priority %s"
                 % (queue_name,prio)))
@@ -246,11 +248,35 @@ class SQS(object):
                     self.queues_priorities_botosqsqueueobjs[prio] = q
                     break
             if not found:
-                self.logger.critical(("SQS queue for priority %s is not "
-                    "existing, but it must! Exit!" % prio))
-                sys.exit(1)
+                    self.logger.critical(("SQS queue for priority %s is not "
+                        "existing!" % prio))
+                    return False
             self.logger.info(("SQS queue for priority "+str(prio)
                              +" is now available: "+ str(q.url)))
+        return True
+
+    def get_job(self):
+        #
+        #
+        #return (sqsmsg, sqsmsg_receipt_handle)
+        # else return (False, False)
+        pass
+
+    def update_highest_priority(self, new_highest_priority_value):
+        """
+        Compare new HP value with old. If changed, invoke complete Queues
+        initialization (name generation and boto SQS queue object init)
+        """
+        if self.highest_priority != new_highest_priority_value:
+            self.logger.info(("Recognized change of Highest Priority, so the "
+                " SQS queues will be re-initialized."))
+            self.highest_priority = new_highest_priority_value
+            self.generate_queues_priorities_names()
+            if not self.check_queues():
+                self.logger.critial(("An error appeared while queue"
+                    " re-initialization after HighestPriority change. Let's"
+                    " see what the future brings: Some queue(s) won't be"
+                    " polled for jobs until the next HP change comes!"))
 
 
 class JobAgent(object):
@@ -286,19 +312,154 @@ class JobAgent(object):
         self.logger.debug("get number of cores for this VM..")
         nbr_cores = self.get_number_of_cores()
         if nbr_cores:
-            self.inicfg.nbr_cores = nbr_cores
+            self.nbr_cores = nbr_cores
             self.logger.info("number of cores: %s" % nbr_cores)
         else:
-            self.inicfg.nbr_cores = None
+            self.logger.error(("number of cores could not be determined. Set "
+                "it to 1."))
+            self.nbr_cores = 1
 
-        # to be populated..
+        # in seconds, the higher the value, the cheaper the process..
+        self.sqs_poll_job_interval = 30
+        self.sdb_poll_softkill_flag_interval = 30
+
+
+        # to be populated / changed during runtime
         self.sdb = None
         self.sqs = None
         self.highest_priority = None
+        self.jobs = None
+        self.sqs_jobs_last_polled = 0
+        self.sdb_softkill_flag_last_polled = 0
+        self.softkill_flag = False
+
+    def check_highest_priority(self):
+        """
+        Receive HP from SDB. If changed, set self.highest_priority to new
+        value AND invoke self.sqs.update_highest_priority(new_hp_value)
+        """
+        new_highest_priority = self.sdb.get_highest_priority()
+        if new_highest_priority is None:
+            self.logger.critical(("The value for HighestPriority could"
+                " not be updated SDB. Hopefully it works in the next turn."))
+            return
+        if new_highest_priority != self.highest_priority:
+            self.highest_priority = new_highest_priority
+            self.sqs.update_highest_priority(new_highest_priority)
+
+    def start_new_job_if_available(self):
+        """
+        Receive new job from SQS. But, only if it's time to. This is defined
+        by self.sqs_poll_job_interval. If we've got a new job, then
+        initialize and process it.
+        """
+        if alarm(self.sqs_jobs_last_polled, self.sqs_poll_job_interval):
+            self.logger.debug(("SDB HighestPriority update & SQS poll job "
+                "triggered"))
+            self.check_highest_priority()
+            sqsmsg, sqsmsg_receipt_handle = self.sqs.get_job()
+            if sqsmsg:
+                self.logger.debug("Received a new SQS job message. Init job..")
+                self.jobs.append(Job(
+                    sqsmsg,
+                    sqsmsg_receipt_handle,
+                    self.sdb,
+                    self.sqs))
+
+    def check_and_manage_running_jobs(self):
+        """
+        Check out what's up with the running jobs. When they change status
+        (subprocess return etc), act accordingly.
+        Delete job from the joblist, if it's totally finished (DONE!)
+        """
+        delete_indices = []
+        for idx, job in enumerate(self.jobs):
+            # this actually checks the job and acts accordingly to what's
+            # happened
+            job.check_and_manage()
+            if job.done:
+                self.logger.debug(("Job %s is done. Mark it for deletion."
+                    % job.job_id))
+                # this job is done, mark it for deletion
+                delete_indices.append(idx)
+
+        # delete job objects that contain finished jobs
+        for idx in reversed(delete_indices):
+            self.logger.debug(("delete job object with job id %s from job list"
+                % job.job_id))
+            del self.jobs[idx]
+
+    def check_vm_softkill_flag(self):
+        """
+        Query SimpleDB for the soft kill flag. But don't do it every time this
+        method is called. Instead, consider self.sdb_poll_softkill_flag_interval
+        """
+        if alarm(
+        self.sdb_softkill_flag_last_polled,
+        self.sdb_poll_softkill_flag_interval):
+            self.logger.debug("Triggered to poll softkill flag from SDB")
+            self.softkill_flag = self.sdb.poll_vm_softkill_flag(self.vm_id)
+            self.logger.debug(("SDB returned softkill flag '%s' for VM '%s'"
+                % (self.softkill_flag, self.vm_id)))
+        return self.softkill_flag
+
+    def main_loop(self):
+        """
+        This is the Job Agent's main loop which will run over and over again.
+        The only way to get out is the shutdown() method. Polling of stuff like
+        subprocesses, SDB and SQS must not happen with very high frequency.
+        Hence, it's okay to send this to sleep for some seconds every turn.
+
+        There are only two ways to kill a VM from the outside:
+        (1) via softkill (don't interrupt running jobs, but shutdown afterwards)
+        (2) via hardkill (reckless destruction of the VM from outside)
+        (1) is checked within this loop, (2) happens autonomous ;-)
+        """
+        while True:
+            # get & start a new job, but only if *BOTH* is fulfilled:
+            # 1) currently, there are less jobs processed than nbr_cores
+            # 2) the VM softkill flag isn't set
+            if len(self.jobs) < self.nbr_cores:
+                # should the VM be killed after finishing current job(s)?
+                if self.check_vm_softkill_flag():
+                    if len(self.jobs) == 0:
+                        # all current jobs done, shut JobAgent and VM down!
+                        self.shutdown()
+                else:
+                    self.start_new_job_if_available()
+
+            # check out what's up with the running jobs. Are subprocesses
+            # finished? What's the returncode? -> Update job status in SDB,
+            # upload output sandboxes, etc...
+            self.check_and_manage_running_jobs()
+
+            # sleep for a while, before starting the next turn..
+            time.sleep(3)
+
+    def shutdown(self):
+        """
+        This is the last method executed by JobAgent, because it invokes a
+        shutdown of this VM. But before:
+        - upload logs
+        - set JobAgent/ VM status in SDB to 'JA_kill_triggered'
+        """
+        self.upload_log()
+        self.sdb.set_jobagent_shutdown()
+        #os.system("shutdown -h now")
 
     def init_sdb(self):
+        """
+        Initialize SimpleDB domains for this Resource Session. Receive
+        HighestPriority setting from SDB.
+        """
         self.sdb = SimpleDB(self.inicfg)
+        # check and init domains
+        self.sdb.check_domains()
         self.highest_priority = self.sdb.get_highest_priority()
+        if self.highest_priority is None:
+            self.logger.critical(("The initial value for HighestPriority could"
+                " not be retrieved from SDB. But it's needed to go on. Exit."))
+            sys.exit(1)
 
     def init_sqs(self):
         """
@@ -310,7 +471,9 @@ class JobAgent(object):
                 "initializing SQS!"))
             return
         self.sqs = SQS(self.inicfg, self.highest_priority)
-        self.sqs.check_queues()
+        if not self.sqs.check_queues():
+            self.logger.critical(("SQS queue initialization error! Exit!"))
+            sys.exit(1)
 
     def get_startconfig_from_userdata(self, userdata_file_path):
         """
@@ -330,6 +493,9 @@ class JobAgent(object):
         return config
 
     def config_to_string(self, configparserconfig):
+        """
+        A convenience method to get a string out of a ConfigParser config
+        """
         configstringlist = []
         for section in configparserconfig.sections():
             for option in configparserconfig.options(section):
@@ -338,11 +504,16 @@ class JobAgent(object):
         return '\n'.join(configstringlist)
 
     def get_number_of_cores(self):
+        """
+        Start subprocess 'grep -c processor /proc/cpuinfo' to count number of
+        available CPU cores on this machine.
+        """
         sp = subprocess.Popen(
             args=['grep -c processor /proc/cpuinfo'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=True)
+        # wait for process to terminate, get stdout and stderr
         stdout, stderr = sp.communicate()
         if stderr:
             logger.error("'grep -c processor /proc/cpuinfo' error: %s" % stderr)

@@ -122,6 +122,13 @@ def timestring():
     return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
 
+def alarm(last_triggered, interval):
+    now = time.time()
+    if min(0, (now - (last_triggered + interval))) == 0:
+        return True
+    return False
+
+
 def check_file(file):
     """
     Check if a given file exists and really is a file (e.g. not a directory)
