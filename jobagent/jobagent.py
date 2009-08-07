@@ -204,8 +204,8 @@ class SQS(object):
                                         self.inicfg.aws_secretkey)
 
         # to be populated..
-        self.queues_priorities_botosqsqueueobjs = None
-        self.queues_priorities_names = None
+        self.queues_priorities_botosqsqueueobjs = {}
+        self.queues_priorities_names = {}
 
         self.generate_queues_priorities_names()
 
@@ -253,9 +253,22 @@ class SQS(object):
                     no: must not happen-> EXIT
         """
         self.logger.info("check queues with prefix "+self.prefix)
-        existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
-        if self.queues_priorities_botosqsqueueobjs is None:
-            self.queues_priorities_botosqsqueueobjs = {}
+        try:
+            existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
+        # Here, two possibilities exist:
+        # 1) MORE queues than before or LESS queues than before.
+        # To avoid deletion of a needed *and* existing boto queue object,
+        # a temporary dict is created, populated with items from the old
+        # dict if necessary or with new boto queue objects. After this,
+        # the "old original dict" is replaced with this temp dict to build
+        # the "new original dict". Boto queue objects that are no more
+        # needed won't survive this process; intentionally.
+        queues_priorities_botosqsqueueobjs_temp = {}
+        error = False
         for prio, queue_name in self.queues_priorities_names.items():
             self.logger.info(("check queue %s for priority %s"
                 % (queue_name,prio)))
@@ -265,14 +278,29 @@ class SQS(object):
                     self.logger.info(("SQS queue %s for priority %s is"
                         " existing" % (q.url,prio)))
                     found = True
-                    self.queues_priorities_botosqsqueueobjs[prio] = q
+                    queues_priorities_botosqsqueueobjs_temp[prio] = q
                     break
             if not found:
+                    error = True
                     self.logger.critical(("SQS queue for priority %s is not "
                         "existing!" % prio))
-                    return False
-            self.logger.info(("SQS queue for priority "+str(prio)
-                             +" is now available: "+ str(q.url)))
+                    self.logger.debug(("Try to save boto queue object from old"
+                        " original dict"))
+                    if prio in self.queues_priorities_botosqsqueueobjs:
+                        found = True
+                        queues_priorities_botosqsqueueobjs_temp[prio] = (
+                            self.queues_priorities_botosqsqueueobjs[prio])
+                        selb.logger.debug(("Queue object for priority %s"
+                            " restored. But it's only a try and"
+                            " likely the access to this queue will fail, since"
+                            " it wasn't returned by `get_all_queues`."))
+            if found:
+                self.logger.info(("boto SQS queue object for priority %s"
+                    " is now accessible: %s" % (prio, q.url)))
+        self.queues_priorities_botosqsqueueobjs = (
+            queues_priorities_botosqsqueueobjs_temp)
+        if error:
+            return False
         return True
 
     def get_job(self):
