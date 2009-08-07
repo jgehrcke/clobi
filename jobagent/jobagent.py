@@ -597,7 +597,7 @@ class JobAgent(object):
             return False
         try:
             nbr_cpus = int(stdout)
-        except TypeError:
+        except ValueError:
             logger.error(("stdout of 'grep -c processor /proc/cpuinfo' was not a"
                 " number: %s" % stdout))
             return False

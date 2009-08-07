@@ -126,6 +126,8 @@ class ResourceManagerMainLoop(threading.Thread):
                     self.nimbus_destroy_workspace(uicmd)
                 elif uicmd.startswith('show_vm_info'):
                     self.show_vm_info(uicmd)
+                elif uicmd.startswith('set_highest_prio'):
+                    self.set_highest_prio(uicmd)
                 else:
                     self.ui_msg('unknown command')
 
@@ -144,6 +146,7 @@ class ResourceManagerMainLoop(threading.Thread):
 
             # this basically builds the `started_vms_string` and displays it
             self.display_started_vms()
+
 
     def display_started_vms(self):
         """
@@ -254,6 +257,31 @@ class ResourceManagerMainLoop(threading.Thread):
             return
         self.ui_msg("better: e.g. 'show_vm_info vm-0001'.")
 
+    def set_highest_prio(self, cmd):
+        words = [word.lower() for word in cmd.split()]
+        if len(words) == 2 and words[0] == 'set_highest_prio':
+            try:
+                entered_new_hp = int(words[1])
+            except ValueError:
+                self.logger.error("entered value is not a number.")
+                return
+            if entered_new_hp == self.session.sdb_session.highest_priority:
+                self.ui_msg(("Highest Priority is already set to"
+                    % entered_new_hp))
+                return
+            if entered_new_hp < self.session.sdb_session.highest_priority:
+                self.ui_msg(("Entered value is smaller than current HP setting."
+                    " Do you really want to delete (a) queue(s)? (Deletion"
+                    " fails if a queue is not empty"))
+            if entered_new_hp > self.session.sdb_session.highest_priority:
+                self.ui_msg(("Entered value is higher than current HP setting."
+                    " Do you really want to create (a) queue(s)? This increases"
+                    " cost a bit."))
+            if self.yes_no("Please confirm"):
+                self.session.change_highest_priority(entered_new_hp)
+            return
+        self.ui_msg("better: e.g. 'set_highest_prio 3'.")
+
     def run_vms(self, cmd):
         """
         check for "run_vms cloud_name number_of_vms" structure.
@@ -348,11 +376,12 @@ class ResourceManagerMainLoop(threading.Thread):
             +"\n* quit:                   Quit Resource Manager."
             +"\n* pause:                  Pause main loop (stop automatic operation)."
             +"\n* start:                  Start main loop / continue after break."
-            +"\n* run_vms cloud X:        Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'"
-            +"\n* query_fact_rp NbX:      Query Nimbus Factory RP"
-            +"\n* query_workspace vm-X:   Query Nimbus workspace corresponding to VM ID"
-            +"\n* destroy_workspace vm-X: Destroy Nimbus workspace corresponding to VM ID"
-            +"\n* show_vm_info vm-X:      shows VM info as stored in save.session.vms"
+            +"\n* run_vms cloud X:        Run X VMs on cloud (EC2|NbY). E.g. 'run_vms Nb1 2'."
+            +"\n* query_fact_rp NbX:      Query Nimbus Factory RP."
+            +"\n* query_workspace vm-X:   Query Nimbus workspace corresponding to VM ID."
+            +"\n* destroy_workspace vm-X: Destroy Nimbus workspace corresponding to VM ID."
+            +"\n* show_vm_info vm-X:      Show VM info as stored in save.session.vms."
+            +"\n* set_highest_prio HP:    Set highest priority to HP; create/delete queues."
             +"\n* poll_sdb:               Update SDB monitoring data."
             +"\n* poll_sqs:               Update SQS monitoring data.")
         self.ui_msg(helpstring)

@@ -347,7 +347,6 @@ class SimpleDBSession(object):
                 % repr(items)))
             return False
 
-
     def get_highest_priority(self):
         """
         Get HighestPriority flag from SDB
@@ -447,6 +446,9 @@ class Session(object):
         self.nimbus_clouds = None
         self.ec2 = None
         self.save_vms_file_last_change_time = 0
+
+    def change_highest_priority(self, new_hp):
+        pass
 
     def get_started_vms_string(self):
         """
