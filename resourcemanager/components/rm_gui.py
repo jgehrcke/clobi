@@ -206,7 +206,7 @@ class ResourceManagerGUI(object):
             if not new_lines[-1].endswith("\n"):
                 self.pipe_log_prefix = new_lines[-1]
                 del new_lines[-1]
-            new_text_list = [urwid.Text(line.rstrip()) for line in new_lines if line.rstrip()]
+            new_text_list = [urwid.Text(line.rstrip(),wrap='any') for line in new_lines if line.rstrip()]
             self.listbox_extend(new_text_list)
 
     def pipe_cmdresp_event(self):

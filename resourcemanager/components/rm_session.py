@@ -101,6 +101,7 @@ class SQSSession(object):
         Perform a 'GetQueueAttributes' request on all session queues; only
         receive approximate number of messages.
         """
+        self.queue_jobnbrs_laststate = {}
         self.logger.debug("get attributes for all SQS queues...")
         for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
             attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
@@ -125,15 +126,16 @@ class SQSSession(object):
                               self.queues_priorities_botosqsqueueobjs
         """
         self.logger.info("check queues with prefix "+self.prefix)
-        existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
+        try:
+            existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
         self.queues_priorities_botosqsqueueobjs = {}
         for prio, queue_name in self.queues_priorities_names.items():
-            if resume:
-                self.logger.info(("continue with queue %s for priority %s"
-                    % (queue_name,prio)))
-            else:
-                self.logger.info(("create queue %s for priority %s"
-                    % (queue_name,prio)))
+            self.logger.info(("check queue %s for priority %s"
+                % (queue_name,prio)))
             found = False
             for q in existing_queues:
                 if q.url.endswith(queue_name):
@@ -143,23 +145,25 @@ class SQSSession(object):
                     attr = q.get_attributes()
                     attrstr = '\n'.join([("         %s: %s" % (k,v))
                         for k,v in attr.items()])
-                    self.logger.info("attributes: \n"+attrstr)
+                    self.logger.debug("attributes: \n"+attrstr)
                     if not resume:
                         self.logger.critical(("This *unique* SQS queue should "
                                       "not have existed before. Now we see "
                                       "it's even not empty. Please check what "
-                                      "has happened! Exiting."))
+                                      "has happened! Exit."))
                         #sys.exit()
                     found = True
                     self.queues_priorities_botosqsqueueobjs[prio] = q
                     break
             if not found:
+                self.logger.info("queue did not exist. create...")
                 q = self.sqsconn.create_queue(
                     queue_name,
                     int(self.default_visibility_timeout))
                 self.queues_priorities_botosqsqueueobjs[prio] = q
             self.logger.info(("SQS queue for priority "+str(prio)
                              +" is now available: "+ str(q.url)))
+        return True
 
     def load_sqs_session_config_from_file(self):
         """
@@ -370,6 +374,25 @@ class SimpleDBSession(object):
         item['HighestPriority'] = self.initial_highest_priority
         item.save()
 
+    def set_highest_priority(self, new_hp):
+        """
+        Update 'session_props' item in SDB with new Highest Priority value.
+        Return True on success, False on error
+        """
+        try:
+            self.logger.info(("Set HighestPriority value to"
+                " %s in SDB..." % new_hp))
+            temp = {}
+            temp['HighestPriority'] = new_hp
+            item = self.boto_domainobj_session.put_attributes(
+                item_name='session_props',
+                attributes=temp)
+            self.highest_priority = new_hp
+            return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
     def load_sdb_session_config_from_file(self):
         """
         Save current SDB session information from a file using ConfigParser.
@@ -448,7 +471,12 @@ class Session(object):
         self.save_vms_file_last_change_time = 0
 
     def change_highest_priority(self, new_hp):
-        pass
+
+        self.sqs_session.generate_queues_priorities_names(
+            highest_priority=new_hp)
+        if self.sqs_session.create_queues(resume=True):
+            if self.sdb_session.set_highest_priority(new_hp):
+                self.logger.info("Highest Priority successfully changed")
 
     def get_started_vms_string(self):
         """
