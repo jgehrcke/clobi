@@ -99,7 +99,7 @@ def main():
                 pipe_uiinfo_update_read=pipe_uiinfo_update_read,
                 pipe_stderr_read=pipe_stderr_read,
                 queue_uicmds=queue_uicmds)
-            mainlog.info("start ResourceManagerGUI: gui.main()")
+            mainlog.debug("start ResourceManagerGUI: gui.main()")
             gui.main()
             mainlog.debug("returned from gui.main()")
         except:     # delay exception, at first try to quit the other thread

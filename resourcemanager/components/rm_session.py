@@ -130,6 +130,8 @@ class SQSSession(object):
             existing_queues = self.sqsconn.get_all_queues(prefix=self.prefix)
         except:
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            if not resume:
+                sys.exit(1)
             return False
 
         self.queues_priorities_botosqsqueueobjs = {}
@@ -140,18 +142,17 @@ class SQSSession(object):
             for q in existing_queues:
                 if q.url.endswith(queue_name):
                     self.logger.info(("SQS queue %s for priority %s is already"
-                                      " existing -> explore queue attributes..."
-                                      % (q.url,prio)))
-                    attr = q.get_attributes()
-                    attrstr = '\n'.join([("         %s: %s" % (k,v))
-                        for k,v in attr.items()])
+                        " existing -> explore queue attributes..."
+                        % (q.url,prio)))
+                    at = q.get_attributes()
+                    attrstr = '\n'.join([("%s:%s"%(k,v)) for k,v in at.items()])
                     self.logger.debug("attributes: \n"+attrstr)
                     if not resume:
                         self.logger.critical(("This *unique* SQS queue should "
-                                      "not have existed before. Now we see "
-                                      "it's even not empty. Please check what "
-                                      "has happened! Exit."))
-                        #sys.exit()
+                            "not have existed before. Now we see "
+                            "it's even not empty. Please check what "
+                            "has happened! Exit."))
+                        #sys.exit(1)
                     found = True
                     self.queues_priorities_botosqsqueueobjs[prio] = q
                     break
@@ -162,7 +163,7 @@ class SQSSession(object):
                     int(self.default_visibility_timeout))
                 self.queues_priorities_botosqsqueueobjs[prio] = q
             self.logger.info(("SQS queue for priority "+str(prio)
-                             +" is now available: "+ str(q.url)))
+                +" is now available: "+ str(q.url)))
         return True
 
     def load_sqs_session_config_from_file(self):
@@ -287,7 +288,7 @@ class SimpleDBSession(object):
             self.logger.info(("SDB domain "+domainname
                                 +" is already existing -> explore metadata..."))
             md = domainobj.get_metadata()
-            self.logger.info((
+            self.logger.debug((
             "metadata:"
             +"\n         item_count: " + str(md.item_count)
             +"\n         item_names_size: " + str(md.item_names_size)

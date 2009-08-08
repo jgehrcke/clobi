@@ -271,8 +271,8 @@ class ResourceManagerMainLoop(threading.Thread):
                 return
             if entered_new_hp < self.session.sdb_session.highest_priority:
                 self.ui_msg(("Entered value is smaller than current HP setting."
-                    " Do you really want to delete (a) queue(s)? (Deletion"
-                    " fails if a queue is not empty"))
+                    " Do you really want to delete (a) queue(s)? Deletion"
+                    " fails if a queue is not empty."))
             if entered_new_hp > self.session.sdb_session.highest_priority:
                 self.ui_msg(("Entered value is higher than current HP setting."
                     " Do you really want to create (a) queue(s)? This increases"
