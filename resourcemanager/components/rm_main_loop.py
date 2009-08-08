@@ -33,6 +33,7 @@ import logging
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
 from components.rm_session import Session
+from components.utils import *
 
 
 class ResourceManagerMainLoop(threading.Thread):
@@ -327,10 +328,10 @@ class ResourceManagerMainLoop(threading.Thread):
         poll intervals to decide if a new SQS / SDB check has to be performed.
         """
         now = time.time()
-        next_sqs_check_in = abs(min(0, (now -
-            (self.sqs_last_checked + self.session.inicfg.sqs.monitor_queues_pollinterval))))
-        next_sdb_check_in = abs(min(0, (now -
-            (self.sdb_last_checked + self.session.inicfg.sdb.monitor_vms_pollinterval))))
+        next_sqs_check_in = min(0, (now -
+            (self.sqs_last_checked + self.session.inicfg.sqs.monitor_queues_pollinterval)))
+        next_sdb_check_in = min(0, (now -
+            (self.sdb_last_checked + self.session.inicfg.sdb.monitor_vms_pollinterval)))
         self.request_update_uiinfo(dict(
             txt_sqs_upd=str(int(round(next_sqs_check_in))).zfill(5)+" s",
             txt_sdb_upd=str(int(round(next_sdb_check_in))).zfill(5)+" s"))
