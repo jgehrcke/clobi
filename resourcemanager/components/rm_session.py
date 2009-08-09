@@ -308,7 +308,7 @@ class SimpleDBSession(object):
 
     def register_vm_started(self, vm_id):
         item = self.boto_domainobj_session.new_item(vm_id)
-        timestr = timestring()
+        timestr = utc_timestring()
         self.logger.info(("creating SDB item %s with 'status=RM_started' and"
             " 'RM_startuptime=%s'" % (vm_id, timestr)))
         item['status'] = 'RM_started'

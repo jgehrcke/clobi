@@ -121,6 +121,8 @@ def backup_file(file_path, backup_dir_path, archive_from = None):
 def timestring():
     return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
+def utc_timestring():
+    return time.strftime("UTC%Y%m%d-%H%M%S", time.localtime())
 
 def alarm(last_triggered, interval):
     now = time.time()

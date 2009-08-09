@@ -30,12 +30,14 @@ import base64
 import subprocess
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
-from components.utils import (check_dir, check_file, timestring, backup_file,
-    Tee, Object, alarm)
+from components.utils import *
 
 sys.path.append("components")
 import boto
 
+
+JOB_WORK_BASEDIR = "/mnt/jobs_workdir/"
+JOB_LOG_BASEDIR = "/mnt/jobs_logdir/"
 
 def main():
     logdir = "jobagent_logs"
@@ -43,7 +45,7 @@ def main():
         os.makedirs(logdir)
 
     # log stderr to stderr and to a real file
-    stderr_logfile_path = os.path.join(logdir, timestring() + "_JA_stderr.log")
+    stderr_logfile_path = os.path.join(logdir, utc_timestring() + "_JA_stderr.log")
     stderr_log_fd = open(stderr_logfile_path,'w')
     sys.stderr = Tee(sys.stderr, stderr_log_fd)
 
@@ -149,7 +151,7 @@ class SimpleDB(object):
 
     def register_ja_started(self):
         item = self.boto_domainobj_session.get_item(self.inicfg.vm_id)
-        timestr = timestring()
+        timestr = utc_timestring()
         if item is not None:
             self.logger.info(("updating SDB item %s with 'status=JA_running' "
                 "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
@@ -180,6 +182,79 @@ class SimpleDB(object):
         except:
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
         return False
+
+    def update_job_state(self, job_id, state):
+        """
+        Update job item in sdb with new state: "get_input"
+        """
+        try:
+            self.logger.info("Job %s: set 'status' value to %s"%(job_id,state))
+            temp = {}
+            temp['status'] = state
+            item = self.boto_domainobj_jobs.put_attributes(
+                item_name=job_id,
+                attributes=temp)
+            return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
+    def initialize_job(self, job_id, sqs_msg_id):
+        """
+        Update SDB that we've received a job. The expected case is that an item
+        with the job id is NOT existing in the jobs' SDB domain.
+
+        Later on, this method should be extended to edit VMs' SDB domain, too:
+        for one VM item all job ID's should be listed that this VM got via SQS.
+        """
+        try:
+            item = self.boto_domainobj_jobs.get_item(job_id)
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        if item is not None:
+            if 'status' in item and item['status'] == 'removed':
+                # the job is marked as "removed" in SDB
+                # (there is no way to delete an SQS message once
+                # sent, it has to be received and then deleted via
+                # receipt handle. Hence, to delete a job, it must
+                # be marked as removed in SDB, which was checked here.
+                # The outer fct will delete the SQS msg.)
+                self.logger.info("Job %s is marked as removed in SDB."%job_id)
+                return 'job_removed'
+            if 'kill_flag' in item and item['kill_flag'] == '1':
+                # the job is marked to be killed even before processing has
+                # started. The outer fct will delete the SQS msg.
+                self.logger.info(("Job %s is already marked to be killed"
+                    % job_id))
+                return 'job_killed'
+            if 'status' in item and item['status'] == 'initialized':
+                # This case is very unlikely: two JAs received the same job
+                # msg. When we are here, the time difference was big enough so
+                # that SDB could act as a "rescuer" here. Real concurrent
+                # access / atomicity is not a feature of SDB, but I hope that
+                # this here does it. If not, then one job is really processed
+                # two times and the job item in SDB will be written by two
+                # JA's :-(
+                self.logger.error(("SDB item %s is already existing in %s."
+                    % (job_id, self.boto_domainobj_jobs.name)))
+                return 'reject_job'
+            else:
+                self.logger.critical(("SDB item %s is already existing, but "
+                    "there are no expected attributes set." % job_id))
+                return False
+        try:
+            item = self.boto_domainobj_jobs.new_item(job_id)
+            item['status'] = 'initialized'
+            item['inittime'] = utc_timestring()
+            item['sqs_message_id'] = sqs_msg_id
+            item.save()
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return 'success'
 
 
 class SQS(object):
@@ -344,6 +419,243 @@ class SQS(object):
                     " see what the future brings: Some queue(s) won't be"
                     " polled for jobs until the next HP change comes!"))
 
+class Job(object):
+    def __init__(self, boto_sqsmsg, ja_inicfg, sdb, sqs, job_machine_index):
+        self.logger = logging.getLogger("jobagent.py.Job.%s"%job_machine_index)
+        self.logger.debug("initialize Job object")
+        self.ja_inicfg = ja_inicfg
+        self.sdb = sdb
+        self.sqs = sqs
+        self.boto_sqsmsg = boto_sqsmsg
+        self.machine_index = job_machine_index
+
+        self.workingdir = None
+        self.logdir = None
+        self.returncode = None
+        self.subprocess = None
+        self.input_sandbox_arc_file_path = None
+        self.stdouterr_file_path = None
+        self.stdouterr_file = None
+        self.subprocess_starttime = None
+        self.done = None
+
+        if not (self.evaluate_sqsmsg() and self.set_up_job_dirs()):
+            self.logger.critical("Job initialization stopped.")
+            # done = True means that this job object gets deleted by JobAgent
+            self.done = True
+            return
+        self.start()
+
+    def set_up_job_dirs(self):
+        self.workingdir = os.path.join(JOB_WORK_BASEDIR,self.job_id)
+        self.logdir = os.path.join(JOB_LOG_BASEDIR,self.job_id)
+        self.logger.info(("Set up working dir %s and log dir %s"
+            % (self.workingdir, self.logdir)))
+        if os.path.exists(self.workingdir):
+            self.logger.critical("%s already exists. Stop Job."%self.workingdir)
+            return False
+        if os.path.exists(self.logdir):
+            self.logger.critical("%s already exists. Stop Job."%self.logdir)
+            return False
+        try:
+            os.makedirs(self.workingdir)
+            os.makedirs(self.logdir)
+        except:
+            self.logger.critical("Error while creating job dirs.")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
+    def evaluate_sqsmsg(self):
+        """
+        Parse SQS job message. Check whether S3 or Cumulus it the storage
+        service. Case S3: use same AWS credentials as for SDB and SQS.
+        Case Cumulus: use special credentials, try to read them from job msg,
+        too.
+        """
+        self.logger.info("Evaluate SQS job message..")
+        jobmsg = SQSJobMessage()
+        try:
+            msg = self.boto_sqsmsg.get_body()
+            self.logger.debug("jog msg: %s" % repr(msg))
+            self.logger.debug("parse message..")
+            jobmsg.init_read(self.boto_sqsmsg.get_body())
+            self.logger.debug("config:\n%s"%jobmsg.config.write_to_string())
+            self.job_id = jobmsg.get_job_id()
+            self.executable = jobmsg.get_executable()
+            ss = jobmsg.get_storage_service().lower()
+            if not (ss == 's3' or ss == 'cumulus'):
+                self.logger.critical("Storage Service is not 's3' or 'cumulus'")
+                return False
+            elif ss == 'cumulus':
+                self.cumulus_hostname = jobmsg.get_cumulus_hostname()
+                self.cumulus_port = jobmsg.get_cumulus_port()
+                self.cumulus_accesskey = jobmsg.get_cumulus_accesskey()
+                self.cumulus_secretkey = jobmsg.get_cumulus_secretkey()
+            self.storage_service = ss
+            self.output_sandbox_arc_filename = jobmsg.get_output_sandbox_arc_filename()
+            self.output_sandbox_archive_key = jobmsg.get_output_sandbox_archive_key()
+            self.sandbox_archive_bucket = jobmsg.get_sandbox_archive_bucket()
+            self.input_sandbox_archive_key = jobmsg.get_input_sandbox_archive_key()
+            self.job_msg_creation_time = jobmsg.get_job_msg_creation_time()
+            self.output_sandbox_files = jobmsg.get_output_sandbox_files()
+            self.job_owner = jobmsg.get_job_owner()
+            self.ganga_job_id = jobmsg.get_ganga_job_id()
+        except:
+            self.logger.critical("Error while parsing SQS job message.")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
+    def start(self):
+        """
+        Make everything okay with this job regarding SDB and SQS, receive
+        input sandbox and start subprocess.
+        """
+        self.logger.info("Job SDB initialization (check/create item)...")
+        initreturn = self.sdb.initialize_job(self.job_id, self.boto_sqsmsg.id)
+        if initreturn == 'success':
+            self.logger.info("Job SDB init successfull.")
+            if self.sdb.update_job_state(self.job_id, 'get_input'):
+                if self.get_input_sandbox():
+                    if self.extract_input_sandbox():
+                        if self.run_subprocess():
+                            self.sdb.update_job_state(self.job_id, 'running')
+                        else:
+                            self.logger.critical("Subprocess run error.")
+                            self.sdb.update_job_state(self.job_id, 'run_error')
+                            self.done = True
+        elif initreturn == 'reject_job':
+            self.logger.info(("Job %s is rejected because of duplicity"
+                % self.job_id))
+            self.done = True
+        elif initreturn == 'job_removed' or initreturn == 'job_killed':
+            self.logger.error("Job killed/removed; now delete SQS msg")
+            self.done = True
+            try:
+                self.boto_sqsmsg.delete()
+            except:
+                self.logger.critical(("Error while deleting SQS msg %s"
+                    % self.boto_sqsmsg.id))
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("Initialization problem. Job processing aborted.")
+            self.done = True
+
+    def run_subprocess(self):
+        self.logger.info("run Job %s as subprocess" % self.job_id)
+        timestr = utc_timestring()
+        stdouterr_file_name = ("%s_%s.log" % (self.job_id,timestr))
+        self.stdouterr_file_path = os.path.join(
+            self.logdir,
+            stdouterr_file_name)
+        self.logger.debug(("open subprocess logfile for writing: %s"
+            % self.stdouterr_file_path))
+        self.stdouterr_file = open(self.stdouterr_file_path,'w')
+
+        exe = os.path.abspath(os.path.join(self.workingdir,self.executable))
+        self.logger.debug(("run %s as subprocess in directory %s"
+            % (exe,self.workingdir)))
+        self.subprocess_starttime = time.time()
+        self.subprocess = subprocess.Popen(
+            args=[exe],
+            stdout=self.stdouterr_file,
+            stderr=subprocess.STDOUT,
+            cwd=self.workingdir,
+            shell=True)
+        return True
+
+    def extract_input_sandbox(self):
+        """
+        Extract via tar subprocess. Assume gzipped tarfile.
+        """
+        # extract input sandbox archive to job working directory
+        cmd = 'tar xzf '+self.input_sandbox_arc_file_path+' -C '+self.workingdir
+        self.logger.info(("run input sandbox archive extraction as subprocess:"
+            " %s" % cmd))
+        try:
+            sp = subprocess.Popen(
+                args=[cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            if stderr:
+                self.logger.error("cmd %s error:" % (cmd,stderr))
+                return False
+        except:
+            self.logger.critical("Error while extracting input sandbox")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
+    def get_input_sandbox(self):
+        """
+        Receive input sandbox data from storage service. Currently, only
+        S3 is supported; Cumulus follows. Store it to job's working dir.
+        Return True in case of success
+        """
+        self.logger.info("retrieve input sandbox from %s"%self.storage_service)
+        if self.storage_service == 's3':
+            try:
+                conn = boto.connect_s3(
+                    self.ja_inicfg.aws_accesskey,
+                    self.ja_inicfg.aws_secretkey)
+                bucket = conn.lookup(bucket_name=self.sandbox_archive_bucket.lower())
+                k = boto.s3.key.Key(bucket)
+                k.key = self.input_sandbox_archive_key
+                self.input_sandbox_arc_file_path = os.path.join(
+                    self.workingdir,
+                    os.path.basename(self.input_sandbox_archive_key))
+                self.logger.info(("Retrieve key %s from bucket %s to file %s"
+                    % (k.key, bucket.name, self.input_sandbox_arc_file_path)))
+                k.get_contents_to_filename(self.input_sandbox_arc_file_path)
+                return True
+            except:
+                self.logger.critical("Error while retrieving input sandbox")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("unkown storage service")
+        return False
+
+    def save_output_sandbox(self):
+        pass
+        #self.sdb.set_save_output_sandbox(self.job_id)
+        #boto.s3.blub bla
+        #oder Cumulus
+
+    def check_and_manage(self):
+        #if self.check_job_kill_flag():
+        #    self.kill()
+        if self.subprocess is not None:
+            self.logger.debug("poll subprocess..")
+            self.returncode = self.subprocess.poll()
+            if self.returncode is not None:
+                self.logger.info(("job returned with returncode %s"
+                    % self.returncode))
+                self.finish()
+
+    def finish(self):
+        self.logger.debug("Finish job...")
+        #self.save_output_sandbox()
+        #self.delete_sqs_msg()
+        # this checks returncode and batch_put_attributes:
+        # returncode, [finished_successfull | finished_error]
+        #self.sdb.set_job_return(self.job_id, self.returncode)
+        self.done = True
+
+    def delete_sqs_smg():
+        self.sdb.set_job_completed(self.job_id)
+        self.sqs.delete_message(self.sqsmsg_receipt_handle)
+
+
+
+    def check_job_kill_flag(self):
+        if self.time_to_poll_sdb_for_job_kill_flag():
+            self.kill_flag = self.sdb.poll_job_kill_flag(self.job_id)
+        return self.kill_flag
+
 
 class JobAgent(object):
     def __init__(self, start_options):
@@ -357,7 +669,7 @@ class JobAgent(object):
         #instanceid_file_path = check_file(start_options.instanceid_file_path)
 
         startconfig = self.get_startconfig_from_userdata(userdata_file_path)
-        logger.debug("startconfig: \n%s" % self.config_to_string(startconfig))
+        self.logger.debug("startconfig: \n%s" % self.config_to_string(startconfig))
         # The startconfig was created by the ResourceManager:
         # config.add_section('userdata')
         # config.set('userdata','sessionid',self.session_id)
@@ -399,6 +711,7 @@ class JobAgent(object):
         self.sqs_jobs_last_polled = 0
         self.sdb_softkill_flag_last_polled = 0
         self.sdb_highestprio_last_polled = 0
+        self.job_machine_index_counter = 0
         self.softkill_flag = False
         self.jobs = []
 
@@ -427,18 +740,22 @@ class JobAgent(object):
         by self.sqs_poll_job_interval. If we've got a new job, then
         initialize and process it.
         """
-        self.logger.debug("start new jobs if available..")
         if alarm(self.sqs_jobs_last_polled, self.sqs_poll_job_interval):
             self.logger.debug(("SQS poll job triggered"))
             self.check_highest_priority()
             boto_sqsmsg = self.sqs.get_job()
             self.sqs_jobs_last_polled = time.time()
-            # if sqsmsg:
-                # self.logger.debug("Received a new SQS job message. Init job..")
-                # self.jobs.append(Job(
-                    # boto_sqsmsg,
-                    # self.sdb,
-                    # self.sqs))
+            if boto_sqsmsg:
+                self.logger.debug("Received a new SQS job message. Init job..")
+                self.jobs.append(Job(
+                    boto_sqsmsg,
+                    self.inicfg,
+                    self.sdb,
+                    self.sqs,
+                    self.job_machine_index_counter))
+                self.job_machine_index_counter += 1
+        else:
+            self.logger.debug("SQS poll job delayed..")
 
     def check_and_manage_running_jobs(self):
         """
@@ -446,6 +763,7 @@ class JobAgent(object):
         (subprocess return etc), act accordingly.
         Delete job from the joblist, if it's totally finished (DONE!)
         """
+        self.logger.debug("check and manage running jobs..")
         delete_indices = []
         for idx, job in enumerate(self.jobs):
             # this actually checks the job and acts accordingly to what's
@@ -496,6 +814,8 @@ class JobAgent(object):
             # 1) currently, there are less jobs processed than nbr_cores
             # 2) the VM softkill flag isn't set
             if len(self.jobs) < self.nbr_cores:
+                self.logger.debug(("Nbr of jobs (%s) smaller than nbr of"
+                    " cores (%s)" %(len(self.jobs),self.nbr_cores)))
                 # should the VM be killed after finishing current job(s)?
                 if self.check_vm_softkill_flag():
                     if len(self.jobs) == 0:
@@ -560,11 +880,11 @@ class JobAgent(object):
             - make ConfigParser config out of zipped string using
               SafeConfigParserStringZip
         """
-        logger.debug("read userdata file %s ..." % userdata_file_path)
+        self.logger.debug("read userdata file %s ..." % userdata_file_path)
         b64zipcfg = open(userdata_file_path).read()
         zipcfg = base64.b64decode(b64zipcfg)
         config = SafeConfigParserStringZip()
-        logger.debug("re-create ConfigParser config from zipped string..")
+        self.logger.debug("re-create ConfigParser config from zipped string..")
         config.read_from_zipped_string(zipcfg)
         return config
 
@@ -593,13 +913,14 @@ class JobAgent(object):
         # wait for process to terminate, get stdout and stderr
         stdout, stderr = sp.communicate()
         if stderr:
-            logger.error("'grep -c processor /proc/cpuinfo' error: %s" % stderr)
+            self.logger.error(("'grep -c processor /proc/cpuinfo' error: %s"
+                % stderr))
             return False
         try:
             nbr_cpus = int(stdout)
         except ValueError:
-            logger.error(("stdout of 'grep -c processor /proc/cpuinfo' was not a"
-                " number: %s" % stdout))
+            self.logger.error(("stdout of 'grep -c processor /proc/cpuinfo' was"
+                " not a number: %s" % stdout))
             return False
         return nbr_cpus
 
@@ -661,6 +982,89 @@ class JobAgentLogger(object):
     def critical(self, msg):
         self.logger.critical(msg)
 
+
+class SQSJobMessage(object):
+    def __init__(self):
+        self.config = SafeConfigParserStringZip()
+        self.section = 'job_message'
+
+    def init_write(self):
+        self.config.add_section(self.section)
+
+    def init_read(self, config_zipped_string):
+        self.config.read_from_zipped_string(config_zipped_string)
+
+    def zip_string(self):
+        return self.config.write_to_zipped_string()
+
+    def b64zip_string(self):
+        zipcfg = self.config.write_to_zipped_string()
+        b64zipcfg = base64.b64encode(zipcfg)
+        return b64zipcfg
+
+    def string(self):
+        return self.config.write_to_string()
+
+    def set_job_id(self, job_id):
+        self.config.set(self.section,'job_id',job_id)
+    def get_job_id(self):
+        return self.config.get(self.section,'job_id')
+    def set_executable(self, exe):
+        self.config.set(self.section,'executable',exe)
+    def get_executable(self):
+        return self.config.get(self.section,'executable')
+    def set_storage_service(self, storage_service):
+        self.config.set(self.section,'storage_service',storage_service)
+    def get_storage_service(self):
+        return self.config.get(self.section,'storage_service')
+    def set_cumulus_hostname(self, cumulus_hostname):
+        self.config.set(self.section,'cumulus_hostname',cumulus_hostname)
+    def get_cumulus_hostname(self):
+        return self.config.get(self.section,'cumulus_hostname')
+    def set_cumulus_port(self, cumulus_port):
+        self.config.set(self.section,'cumulus_port',cumulus_port)
+    def get_cumulus_port(self):
+        return self.config.get(self.section,'cumulus_port')
+    def set_cumulus_accesskey(self, cumulus_accesskey):
+        self.config.set(self.section,'cumulus_accesskey',cumulus_accesskey)
+    def get_cumulus_accesskey(self):
+        return self.config.get(self.section,'cumulus_accesskey')
+    def set_cumulus_secretkey(self, cumulus_secretkey):
+        self.config.set(self.section,'cumulus_secretkey',cumulus_secretkey)
+    def get_cumulus_secretkey(self,):
+        return self.config.get(self.section,'cumulus_secretkey')
+    def set_sandbox_archive_bucket(self, bucket):
+        self.config.set(self.section,'sandbox_archive_bucket',bucket)
+    def get_sandbox_archive_bucket(self):
+        return self.config.get(self.section,'sandbox_archive_bucket')
+    def set_output_sandbox_arc_filename(self, filename):
+        self.config.set(self.section,'output_sandbox_arc_filename',filename)
+    def get_output_sandbox_arc_filename(self):
+        return self.config.get(self.section,'output_sandbox_arc_filename')
+    def set_output_sandbox_archive_key(self, key):
+        self.config.set(self.section,'output_sandbox_archive_key',key)
+    def get_output_sandbox_archive_key(self):
+        return self.config.get(self.section,'output_sandbox_archive_key')
+    def set_input_sandbox_archive_key(self, key):
+        self.config.set(self.section,'input_sandbox_archive_key',key)
+    def get_input_sandbox_archive_key(self):
+        return self.config.get(self.section,'input_sandbox_archive_key')
+    def set_job_msg_creation_time(self, timestr):
+        self.config.set(self.section,'job_msg_creation_time',timestr)
+    def get_job_msg_creation_time(self):
+        return self.config.get(self.section,'job_msg_creation_time')
+    def set_output_sandbox_files(self, comma_sep_files):
+        self.config.set(self.section,'output_sandbox_files',comma_sep_files)
+    def get_output_sandbox_files(self):
+        return self.config.get(self.section,'output_sandbox_files')
+    def set_job_owner(self, owner):
+        self.config.set(self.section,'job_owner',owner)
+    def get_job_owner(self):
+        return self.config.get(self.section,'job_owner')
+    def set_ganga_job_id(self, ganga_job_id):
+        self.config.set(self.section,'ganga_job_id',ganga_job_id)
+    def get_ganga_job_id(self):
+        return self.config.get(self.section,'ganga_job_id')
 
 def parseargs():
     """
