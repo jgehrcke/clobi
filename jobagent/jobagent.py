@@ -149,21 +149,46 @@ class SimpleDB(object):
                 " before any VM is started up. I'll exit now"))
             sys.exit(1)
 
-    def register_ja_started(self):
-        item = self.boto_domainobj_session.get_item(self.inicfg.vm_id)
-        timestr = utc_timestring()
-        if item is not None:
-            self.logger.info(("updating SDB item %s with 'status=JA_running' "
-                "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
-            item['status'] = 'JA_running'
-            item['JA_startuptime'] = timestr
-            item.save()
-        else:
-            self.logger.critical(("No %s item set in SDB! This"
-                " means that something went very wrong. It must be set by RM"
-                " before any VM is started up. I'll exit now"
-                % self.inicfg.vm_id))
-            sys.exit(1)
+    def register_ja_started(self, second=False):
+        """
+        Register Job Agent as 'JA_running' in SDB. If an error occures, wait
+        some time and simply try again. If an error appears again, return False.
+        This will result in JA & VM shutdown.
+        Try two times, because a "random web service error" at this point can
+        kick off the whole VM.
+        """
+        self.logger.info("Try to register JA as started in SDB...")
+        error = False
+        try:
+            item = self.boto_domainobj_session.get_item(self.inicfg.vm_id)
+            timestr = utc_timestring()
+            if item is not None:
+                self.logger.info(("updating SDB item %s with 'status=JA_running' "
+                    "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
+                item['status'] = 'JA_running'
+                item['JA_startuptime'] = timestr
+                item.save()
+                # at this point everything was successfull. return True.
+                return True
+            else:
+                self.logger.critical(("No %s item set in SDB! This"
+                    " means that something went very wrong. It must be set by"
+                    " RM before any VM is started up. Hence, I am an out-of-"
+                    "control-VM and will shut down " % self.inicfg.vm_id))
+                return False
+        except:
+            self.logger.critical(("ERR while receiving/changing item %s"
+                %self.inicfg.vm_id))
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+
+        if not second:
+            self.logger.error(("There was an error while registering this VM"
+                " with SDB. Wait 30 seconds and try again."))
+            time.sleep(30)
+            return self.register_ja_started(second=True)
+        self.logger.error(("This is the second time register_ja_started() was"
+            " called and the second time an exceptional error appeared."))
+        return False
 
     def poll_job_kill_flag(self, job_id):
         """
@@ -174,25 +199,34 @@ class SimpleDB(object):
             item = self.boto_domainobj_jobs.get_attributes(
                 item_name=job_id,
                 attribute_name='kill_flag')
-            kill_flag = item['kill_flag']
-            if kill_flag == '1':
-                return True
+            if 'kill_flag' in item:
+                if item['kill_flag'] == '1':
+                    self.logger.info("Job %s: kill_flag set to 1 in SDB"%job_id)
+                    return True
+                else:
+                    self.logger.debug("Job %s: kill_flag set; not 1."%job_id)
+            else:
+                self.logger.debug("Job %s: kill_flag not set."%job_id)
         except:
             self.logger.debug(("Job %s: could not retrieve jobs' kill flag."
                 " don't kill :-)" % job_id))
         return False
 
-    def poll_vm_softkill_flag(self):
+    def poll_vm_softkill_flag(self, item=None):
         """
         Query SDB for soft kill flag 'VM_softkill_flag' Return True if set to
         '1'; False otherwise.
+
+        @params: job_id: Job ID (string)
+                 item: boto SDB item object. if given, this is used and
+                       and evaluated (saves one web service call).
         """
-        self.logger.debug(("Check if VM status is set to "
-            "'RM_kill_after_job_ordered' in SDB..."))
+        self.logger.debug(("Check if VM softkill flag is set in SDB"))
         try:
-            item = self.boto_domainobj_session.get_attributes(
-                item_name=self.inicfg.vm_id,
-                attribute_name='VM_softkill_flag')
+            if item is None:
+                item = self.boto_domainobj_session.get_attributes(
+                    item_name=self.inicfg.vm_id,
+                    attribute_name='VM_softkill_flag')
             if 'VM_softkill_flag' in item:
                 if item['VM_softkill_flag'] == '1':
                     self.logger.info("VM_softkill_flag set to 1 in SDB")
