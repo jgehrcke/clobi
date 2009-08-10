@@ -510,6 +510,10 @@ class Job(object):
         self.start()
 
     def set_up_job_dirs_files(self):
+        """
+        Job and log dir must not exist. Create them then. Build important
+        pathts (e.g. input sandbox archive file path)
+        """
         self.workingdir = os.path.join(JOB_WORK_BASEDIR,self.job_id)
         self.logdir = os.path.join(JOB_LOG_BASEDIR,self.job_id)
         self.logger.info(("Set up working dir %s and log dir %s"
@@ -577,6 +581,9 @@ class Job(object):
         return True
 
     def check_and_manage(self):
+        """
+        Check job's state. Act accordingly.
+        """
         if self.check_job_kill_flag():
             if self.kill():
                 self.logger.debug("subprocess killed.")
@@ -590,7 +597,8 @@ class Job(object):
 
     def finish(self):
         """
-        The job subprocess ended.
+        The job subprocess ended. Update SDB, build&upload output sandbox,
+        delete SQS msg.
         """
         self.logger.debug("Finish job...")
         self.sdb.update_job_state(self.job_id, 'save_output', self.returncode)
@@ -908,6 +916,10 @@ class JobAgent(object):
         self.jobs = []
 
     def main(self):
+        """
+        Initialize SDB and SQS and then pass into mainloop. Shut down in error
+        case.
+        """
         if self.init_sdb():
             self.logger.info("SDB init successfull.")
             if self.init_sqs():
