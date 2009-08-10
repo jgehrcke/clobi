@@ -56,11 +56,7 @@ def main():
         logger.debug("parse commandline arguments..")
         start_options = parseargs()
         jobagent = JobAgent(start_options)
-        jobagent.init_sdb()
-        jobagent.init_sqs()
-        # I (the JobAgent) now tell to SimpleDB that I've started up :-)
-        jobagent.sdb.register_ja_started()
-        jobagent.main_loop()
+        jobagent.main()
     except:
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -911,6 +907,17 @@ class JobAgent(object):
         self.softkill_flag = False
         self.jobs = []
 
+    def main(self):
+        if self.init_sdb():
+            self.logger.info("SDB init successfull.")
+            if self.init_sqs():
+                self.logger.info("SQS init successfull.")
+                if self.sdb.register_ja_started():
+                    self.logger.info("JA successfully registered with SDB.")
+                    self.main_loop()
+        self.logger.critical("JA initialization error. Invoke JA shutdown.")
+        self.shutdown()
+
     def check_highest_priority(self):
         """
         Receive HP from SDB. If changed, set self.highest_priority to new
@@ -1035,8 +1042,10 @@ class JobAgent(object):
         - upload logs
         - set JobAgent/ VM status in SDB to 'JA_kill_triggered'
         """
-        self.upload_log()
-        self.sdb.set_jobagent_shutdown()
+        self.logger.info("SHUTDOWN")
+        sys.exit(1)
+        #self.upload_log()
+        #self.sdb.set_jobagent_shutdown()
         #os.system("shutdown -h now")
 
     def init_sdb(self):
@@ -1044,14 +1053,21 @@ class JobAgent(object):
         Initialize SimpleDB domains for this Resource Session. Receive
         HighestPriority setting from SDB.
         """
-        self.sdb = SimpleDB(self.inicfg)
-        # check and init domains
-        self.sdb.check_domains()
-        self.highest_priority = self.sdb.get_highest_priority()
+        try:
+            self.sdb = SimpleDB(self.inicfg)
+            # check and init domains
+            self.sdb.check_domains()
+            self.highest_priority = self.sdb.get_highest_priority()
+        except:
+            self.logger.critical("Error while initializing SDB")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
         if self.highest_priority is None:
             self.logger.critical(("The initial value for HighestPriority could"
-                " not be retrieved from SDB. But it's needed to go on. Exit."))
-            sys.exit(1)
+                " not be retrieved from SDB. But it's needed to go on."))
+            return False
+        return True
 
     def init_sqs(self):
         """
@@ -1061,11 +1077,17 @@ class JobAgent(object):
         if not self.highest_priority :
             self.logger.error(("highest priority must be set before "
                 "initializing SQS!"))
-            return
-        self.sqs = SQS(self.inicfg, self.highest_priority)
-        if not self.sqs.check_queues():
-            self.logger.critical(("SQS queue initialization error! Exit!"))
-            sys.exit(1)
+            return False
+        try:
+            self.sqs = SQS(self.inicfg, self.highest_priority)
+            if not self.sqs.check_queues():
+                self.logger.critical(("SQS queue initialization error! Exit!"))
+                return False
+            return True
+        except:
+            self.logger.critical("Error while initializing SQS")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
     def get_startconfig_from_userdata(self, userdata_file_path):
         """
