@@ -255,7 +255,7 @@ class SimpleDB(object):
             if state == 'killed':
                 temp['killtime'] = utc_timestring()
             if state == 'save_output':
-                temp['save_starttime'] = utc_timestring()
+                temp['savestarttime'] = utc_timestring()
                 temp['returncode'] = str(returncode)
             if state == 'completed_error' or state == 'completed_success':
                 temp['completedtime'] = utc_timestring()
@@ -769,7 +769,7 @@ class Job(object):
         compress all desired output files into an archive. Additionally,
         put
         - job's logfile
-        - Job Agents stdout logfile and stderr logfile (current state)
+        - Job Agent's stdout logfile and stderr logfile (current state)
         - boto's logfile
         into the archive, too.
         """
