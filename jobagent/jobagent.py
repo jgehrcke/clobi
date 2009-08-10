@@ -165,6 +165,23 @@ class SimpleDB(object):
                 % self.inicfg.vm_id))
             sys.exit(1)
 
+    def poll_job_kill_flag(self, job_id):
+        """
+        Query SDB for a special job item in jobs' domain. Look for the kill flag
+        """
+        try:
+            self.logger.debug("Job %s: Check if job kill flag is set..."%job_id)
+            item = self.boto_domainobj_jobs.get_attributes(
+                item_name=job_id,
+                attribute_name='kill_flag')
+            kill_flag = item['kill_flag']
+            if kill_flag == '1':
+                return True
+        except:
+            self.logger.debug(("Job %s: could not retrieve jobs' kill flag."
+                " don't kill :-)" % job_id))
+        return False
+
     def poll_vm_softkill_flag(self):
         """
         Query SDB for VM status. 'RM_kill_after_job_ordered' is evaluated as
@@ -183,7 +200,7 @@ class SimpleDB(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
         return False
 
-    def update_job_state(self, job_id, state):
+    def update_job_state(self, job_id, state, returncode=None):
         """
         Update job item in sdb with new state: "get_input"
         """
@@ -191,6 +208,15 @@ class SimpleDB(object):
             self.logger.info("Job %s: set 'status' value to %s"%(job_id,state))
             temp = {}
             temp['status'] = state
+            if state == 'running':
+                temp['runstarttime'] = utc_timestring()
+            if state == 'killed':
+                temp['killtime'] = utc_timestring()
+            if state == 'save_output':
+                temp['save_starttime'] = utc_timestring()
+                temp['returncode'] = str(returncode)
+            if state == 'completed_error' or state == 'completed_success':
+                temp['completedtime'] = utc_timestring()
             item = self.boto_domainobj_jobs.put_attributes(
                 item_name=job_id,
                 attributes=temp)
@@ -214,6 +240,12 @@ class SimpleDB(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
         if item is not None:
+            if 'kill_flag' in item and item['kill_flag'] == '1':
+                # the job is marked to be killed even before processing has
+                # started. The outer fct will delete the SQS msg.
+                self.logger.info(("Job %s is already marked to be killed"
+                    % job_id))
+                return 'job_killed'
             if 'status' in item and item['status'] == 'removed':
                 # the job is marked as "removed" in SDB
                 # (there is no way to delete an SQS message once
@@ -223,13 +255,8 @@ class SimpleDB(object):
                 # The outer fct will delete the SQS msg.)
                 self.logger.info("Job %s is marked as removed in SDB."%job_id)
                 return 'job_removed'
-            if 'kill_flag' in item and item['kill_flag'] == '1':
-                # the job is marked to be killed even before processing has
-                # started. The outer fct will delete the SQS msg.
-                self.logger.info(("Job %s is already marked to be killed"
-                    % job_id))
-                return 'job_killed'
-            if 'status' in item and item['status'] == 'initialized':
+            if ('status' in item and
+            (item['status'] == 'initialized' or item['status'] == 'running')):
                 # This case is very unlikely: two JAs received the same job
                 # msg. When we are here, the time difference was big enough so
                 # that SDB could act as a "rescuer" here. Real concurrent
@@ -241,8 +268,8 @@ class SimpleDB(object):
                     % (job_id, self.boto_domainobj_jobs.name)))
                 return 'reject_job'
             else:
-                self.logger.critical(("SDB item %s is already existing, but "
-                    "there are no expected attributes set." % job_id))
+                self.logger.critical(("SDB item %s is already existing."
+                    % job_id))
                 return False
         try:
             item = self.boto_domainobj_jobs.new_item(job_id)
@@ -437,16 +464,17 @@ class Job(object):
         self.stdouterr_file_path = None
         self.stdouterr_file = None
         self.subprocess_starttime = None
+        self.sdb_jobkill_flag_last_polled = 0
         self.done = None
 
-        if not (self.evaluate_sqsmsg() and self.set_up_job_dirs()):
+        if not (self.evaluate_sqsmsg() and self.set_up_job_dirs_files()):
             self.logger.critical("Job initialization stopped.")
             # done = True means that this job object gets deleted by JobAgent
             self.done = True
             return
         self.start()
 
-    def set_up_job_dirs(self):
+    def set_up_job_dirs_files(self):
         self.workingdir = os.path.join(JOB_WORK_BASEDIR,self.job_id)
         self.logdir = os.path.join(JOB_LOG_BASEDIR,self.job_id)
         self.logger.info(("Set up working dir %s and log dir %s"
@@ -464,6 +492,12 @@ class Job(object):
             self.logger.critical("Error while creating job dirs.")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
+        self.output_sandbox_arc_file_path = os.path.join(
+            self.workingdir,
+            self.output_sandbox_arc_filename)
+        self.input_sandbox_arc_file_path = os.path.join(
+            self.workingdir,
+            os.path.basename(self.input_sandbox_archive_key))
         return True
 
     def evaluate_sqsmsg(self):
@@ -507,6 +541,35 @@ class Job(object):
             return False
         return True
 
+    def check_and_manage(self):
+        if self.check_job_kill_flag():
+            if self.kill():
+                self.logger.debug("subprocess killed.")
+        if self.subprocess is not None:
+            self.logger.debug("poll subprocess..")
+            self.returncode = self.subprocess.poll()
+            if self.returncode is not None:
+                self.logger.info(("job returned with returncode %s"
+                    % self.returncode))
+                self.finish()
+
+    def finish(self):
+        """
+        The job subprocess ended.
+        """
+        self.logger.debug("Finish job...")
+        self.sdb.update_job_state(self.job_id, 'save_output', self.returncode)
+        if self.build_output_sandbox_arc():
+            self.logger.info("output sandbox archive built.")
+            if self.save_output_sandbox():
+                self.logger.info("output sandbox archive uploaded.")
+                self.delete_sqs_message()
+                if self.returncode != 0:
+                    self.sdb.update_job_state(self.job_id, 'completed_error')
+                else:
+                    self.sdb.update_job_state(self.job_id, 'completed_success')
+        self.done = True
+
     def start(self):
         """
         Make everything okay with this job regarding SDB and SQS, receive
@@ -521,71 +584,78 @@ class Job(object):
                     if self.extract_input_sandbox():
                         if self.run_subprocess():
                             self.sdb.update_job_state(self.job_id, 'running')
+                            # this is the real success -> return
+                            # any other case will lead in self.done = True and
+                            # the deletion of the SQS job message.
+                            return
                         else:
                             self.logger.critical("Subprocess run error.")
                             self.sdb.update_job_state(self.job_id, 'run_error')
-                            self.done = True
         elif initreturn == 'reject_job':
             self.logger.info(("Job %s is rejected because of duplicity"
                 % self.job_id))
-            self.done = True
+            # another VM is working on this job. I think this means that this
+            # VM here received the SQS job message at last. This means that
+            # the SQS job message can only be deleted with the receipt handle
+            # of THIS message here. (one get's another receipt handle on each
+            # receipt and the msg can only be deleted with the most recent one.)
+            # Hence, we have to delete the message, because the other VM simply
+            # can't.
         elif initreturn == 'job_removed' or initreturn == 'job_killed':
             self.logger.error("Job killed/removed; now delete SQS msg")
-            self.done = True
-            try:
-                self.boto_sqsmsg.delete()
-            except:
-                self.logger.critical(("Error while deleting SQS msg %s"
-                    % self.boto_sqsmsg.id))
-                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            # here, it is clear that it makes sense to delete the SQS msg :-)
         else:
             self.logger.error("Initialization problem. Job processing aborted.")
-            self.done = True
+        # when we got here, the job's subprocess did not start. Mark job
+        # as "done" which results in deletion of the Job object out
+        # of JobAgent's joblist. Additionally, delete job's SQS msg (as argued
+        # above).
+        self.done = True
+        self.delete_sqs_message()
+
+    def delete_sqs_message(self):
+        """
+        Delete SQS message. No consequences if it does not work.
+        """
+        try:
+            self.logger.debug("delete SQS msg with ID %s" % self.boto_sqsmsg.id)
+            foo = self.boto_sqsmsg.delete()
+            if foo:
+                self.logger.debug("deletion successfull")
+            else:
+                self.logger.debug("boto_sqsmsg.delete() returned %s" % foo)
+        except:
+            self.logger.critical(("Error while deleting SQS msg %s"
+                % self.boto_sqsmsg.id))
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
 
     def run_subprocess(self):
-        self.logger.info("run Job %s as subprocess" % self.job_id)
-        timestr = utc_timestring()
-        stdouterr_file_name = ("%s_%s.log" % (self.job_id,timestr))
-        self.stdouterr_file_path = os.path.join(
-            self.logdir,
-            stdouterr_file_name)
-        self.logger.debug(("open subprocess logfile for writing: %s"
-            % self.stdouterr_file_path))
-        self.stdouterr_file = open(self.stdouterr_file_path,'w')
-
-        exe = os.path.abspath(os.path.join(self.workingdir,self.executable))
-        self.logger.debug(("run %s as subprocess in directory %s"
-            % (exe,self.workingdir)))
-        self.subprocess_starttime = time.time()
-        self.subprocess = subprocess.Popen(
-            args=[exe],
-            stdout=self.stdouterr_file,
-            stderr=subprocess.STDOUT,
-            cwd=self.workingdir,
-            shell=True)
-        return True
-
-    def extract_input_sandbox(self):
         """
-        Extract via tar subprocess. Assume gzipped tarfile.
+        Run job executable as subprocess. Store stdout/err in job log directory.
         """
-        # extract input sandbox archive to job working directory
-        cmd = 'tar xzf '+self.input_sandbox_arc_file_path+' -C '+self.workingdir
-        self.logger.info(("run input sandbox archive extraction as subprocess:"
-            " %s" % cmd))
         try:
-            sp = subprocess.Popen(
-                args=[cmd],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            self.logger.info("run Job %s as subprocess" % self.job_id)
+            timestr = utc_timestring()
+            stdouterr_file_name = ("%s_%s.log" % (self.job_id,timestr))
+            self.stdouterr_file_path = os.path.join(
+                self.logdir,
+                stdouterr_file_name)
+            self.logger.debug(("open subprocess logfile for writing: %s"
+                % self.stdouterr_file_path))
+            self.stdouterr_file = open(self.stdouterr_file_path,'w')
+
+            exe = os.path.abspath(os.path.join(self.workingdir,self.executable))
+            self.logger.debug(("run %s as subprocess in directory %s"
+                % (exe,self.workingdir)))
+            self.subprocess_starttime = time.time()
+            self.subprocess = subprocess.Popen(
+                args=[exe],
+                stdout=self.stdouterr_file,
+                stderr=subprocess.STDOUT,
+                cwd=self.workingdir,
                 shell=True)
-            # wait for process to terminate, get stdout and stderr
-            stdout, stderr = sp.communicate()
-            if stderr:
-                self.logger.error("cmd %s error:" % (cmd,stderr))
-                return False
         except:
-            self.logger.critical("Error while extracting input sandbox")
+            self.logger.critical("Error in run_subprocess()")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
         return True
@@ -605,9 +675,6 @@ class Job(object):
                 bucket = conn.lookup(bucket_name=self.sandbox_archive_bucket.lower())
                 k = boto.s3.key.Key(bucket)
                 k.key = self.input_sandbox_archive_key
-                self.input_sandbox_arc_file_path = os.path.join(
-                    self.workingdir,
-                    os.path.basename(self.input_sandbox_archive_key))
                 self.logger.info(("Retrieve key %s from bucket %s to file %s"
                     % (k.key, bucket.name, self.input_sandbox_arc_file_path)))
                 k.get_contents_to_filename(self.input_sandbox_arc_file_path)
@@ -619,41 +686,130 @@ class Job(object):
             self.logger.error("unkown storage service")
         return False
 
+    def extract_input_sandbox(self):
+        """
+        Extract via tar subprocess. Assume gzipped tarfile.
+        """
+        # extract input sandbox archive to job working directory
+        cmd = ("tar xzf %s --verbose -C %s"
+            % (self.input_sandbox_arc_file_path,self.workingdir))
+        self.logger.info(("run input sandbox archive extraction as subprocess:"
+            " %s" % cmd))
+        try:
+            sp = subprocess.Popen(
+                args=[cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            if stderr:
+                self.logger.error("cmd %s STDERR:\n%s" % (cmd,stderr))
+                return False
+        except:
+            self.logger.critical("Error while extracting input sandbox")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
+    def build_output_sandbox_arc(self):
+        """
+        Start subprocess  tar czf arc.tar.gz --ignore-failed-read x x x' to
+        compress all desired output files into an archive. Additionally,
+        put job's logfile into the archive, too.
+        """
+        # at first process the filenames that were given in the job message
+        filename_list = self.output_sandbox_files.split(";")
+        tar_files_list = ' '.join(filename_list)
+        # now add the job's logfile to the list.
+        # at first: close it!
+        self.stdouterr_file.close()
+        # grab the directory and the filename
+        logfiledir = os.path.dirname(self.stdouterr_file_path)
+        logfilename = os.path.basename(self.stdouterr_file_path)
+        # add tar's directory switch to logfiledir; then add logfile:
+        tar_files_list += " -C %s %s" % (logfiledir, logfilename)
+
+        cmd = ("tar czf %s --verbose --ignore-failed-read  %s"
+            % (self.output_sandbox_arc_file_path, tar_files_list))
+        self.logger.info(("run output sandbox compression as subprocess:"
+            " %s in workingdir %s" % (cmd, self.workingdir)))
+        try:
+            sp = subprocess.Popen(
+                args=[cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+                cwd=self.workingdir)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            if stderr:
+                self.logger.error("cmd %s STDERR:\n%s" % (cmd,stderr))
+                # existing stderr does not necessarily mean that the archive
+                # wasn't created.
+                if not os.path.exists(self.output_sandbox_arc_file_path):
+                    self.logger.error("output sandbox archive was not created.")
+                    return False
+        except:
+            self.logger.critical("Error while compressing output sandbox")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
     def save_output_sandbox(self):
-        pass
-        #self.sdb.set_save_output_sandbox(self.job_id)
-        #boto.s3.blub bla
-        #oder Cumulus
+        """
+        Send output sandbox data to storage service. Currently, only
+        S3 is supported; Cumulus follows.
+        Return True in case of success
+        """
+        self.logger.info("send output sandbox to %s" % self.storage_service)
+        if self.storage_service == 's3':
+            try:
+                conn = boto.connect_s3(
+                    self.ja_inicfg.aws_accesskey,
+                    self.ja_inicfg.aws_secretkey)
+                bucket = conn.lookup(bucket_name=self.sandbox_archive_bucket.lower())
+                k = boto.s3.key.Key(bucket)
+                k.key = self.output_sandbox_archive_key
+                self.logger.info(("store file %s as key %s to bucket %s"
+                    % (self.output_sandbox_arc_file_path, k.key, bucket.name)))
+                k.set_contents_from_filename(self.output_sandbox_arc_file_path)
+                return True
+            except:
+                self.logger.critical("Error while uploading output sandbox")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("unkown storage service")
+        return False
 
-    def check_and_manage(self):
-        #if self.check_job_kill_flag():
-        #    self.kill()
+    def kill(self):
+        """
+        Kill job's subprocess via SIGKILL.
+        """
         if self.subprocess is not None:
-            self.logger.debug("poll subprocess..")
-            self.returncode = self.subprocess.poll()
-            if self.returncode is not None:
-                self.logger.info(("job returned with returncode %s"
-                    % self.returncode))
-                self.finish()
-
-    def finish(self):
-        self.logger.debug("Finish job...")
-        #self.save_output_sandbox()
-        #self.delete_sqs_msg()
-        # this checks returncode and batch_put_attributes:
-        # returncode, [finished_successfull | finished_error]
-        #self.sdb.set_job_return(self.job_id, self.returncode)
-        self.done = True
-
-    def delete_sqs_smg():
-        self.sdb.set_job_completed(self.job_id)
-        self.sqs.delete_message(self.sqsmsg_receipt_handle)
-
-
+            self.logger.info("KILL job's subprocess")
+        try:
+            # new in Python 2.6
+            self.subprocess.kill()
+            self.sdb.update_job_state(self.job_id, 'killed')
+            return True
+        except:
+            self.logger.critical("Error while killing subprocess")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
 
     def check_job_kill_flag(self):
-        if self.time_to_poll_sdb_for_job_kill_flag():
+        """
+        Check if it's time to poll the kill flag from SDB. yes: poll and return
+        no: return old state.
+        """
+        if alarm(
+        self.sdb_jobkill_flag_last_polled,
+        self.ja_inicfg.sdb_poll_jobkill_flag):
+            self.logger.debug("Triggered to check kill flag")
             self.kill_flag = self.sdb.poll_job_kill_flag(self.job_id)
+            self.sdb_jobkill_flag_last_polled = time.time()
         return self.kill_flag
 
 
@@ -698,9 +854,10 @@ class JobAgent(object):
             self.nbr_cores = 1
 
         # in seconds, the higher the value, the cheaper the process..
-        self.sqs_poll_job_interval = 30
-        self.sdb_poll_softkill_flag_interval = 30
-        self.sdb_poll_highestprio_interval = 30
+        self.inicfg.sqs_poll_job_interval = 30
+        self.inicfg.sdb_poll_softkill_flag_interval = 30
+        self.inicfg.sdb_poll_highestprio_interval = 30
+        self.inicfg.sdb_poll_jobkill_flag = 30
 
 
         # to be populated / changed during runtime
@@ -722,7 +879,7 @@ class JobAgent(object):
         """
         if alarm(
         self.sdb_highestprio_last_polled,
-        self.sdb_poll_highestprio_interval):
+        self.inicfg.sdb_poll_highestprio_interval):
             self.logger.debug(("SDB HighestPriority update triggered"))
             new_highest_priority = self.sdb.get_highest_priority()
             self.sdb_highestprio_last_polled = time.time()
@@ -737,10 +894,10 @@ class JobAgent(object):
     def start_new_job_if_available(self):
         """
         Receive new job from SQS. But, only if it's time to. This is defined
-        by self.sqs_poll_job_interval. If we've got a new job, then
+        by self.inicfg.sqs_poll_job_interval. If we've got a new job, then
         initialize and process it.
         """
-        if alarm(self.sqs_jobs_last_polled, self.sqs_poll_job_interval):
+        if alarm(self.sqs_jobs_last_polled, self.inicfg.sqs_poll_job_interval):
             self.logger.debug(("SQS poll job triggered"))
             self.check_highest_priority()
             boto_sqsmsg = self.sqs.get_job()
@@ -784,11 +941,11 @@ class JobAgent(object):
     def check_vm_softkill_flag(self):
         """
         Query SimpleDB for the soft kill flag. But don't do it every time this
-        method is called. Instead, consider self.sdb_poll_softkill_flag_interval
+        method is called. Instead, consider self.inicfg.sdb_poll_softkill_flag_interval
         """
         if alarm(
         self.sdb_softkill_flag_last_polled,
-        self.sdb_poll_softkill_flag_interval):
+        self.inicfg.sdb_poll_softkill_flag_interval):
             self.logger.debug("Triggered to poll VM softkill flag from SDB")
             self.softkill_flag = self.sdb.poll_vm_softkill_flag()
             self.logger.debug(("SDB returned softkill flag '%s' for VM '%s'"
