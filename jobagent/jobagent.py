@@ -1105,6 +1105,8 @@ class JobAgent(object):
                 if self.check_vm_softkill_flag():
                     if len(self.jobs) == 0:
                         # all current jobs done, shut JobAgent and VM down!
+                        self.logger.info(("VM softkill flag is set *and* there"
+                            " is no running job. Invoke cleanup/shutdown!"))
                         self.shutdown()
                 else:
                     self.start_new_job_if_available()
@@ -1140,6 +1142,7 @@ class JobAgent(object):
             self.inicfg.stderr_logfile_path,
             os.path.basename(self.inicfg.stderr_logfile_path))
         tar.close()
+        self.logger.debug("bundled.")
 
         # now upload..
         self.logger.info("send Job Agent log to %s"
@@ -1147,8 +1150,8 @@ class JobAgent(object):
         if self.inicfg.log_storage_service.lower() == 's3':
             try:
                 conn = boto.connect_s3(
-                    self.ja_inicfg.aws_accesskey,
-                    self.ja_inicfg.aws_secretkey)
+                    self.inicfg.aws_accesskey,
+                    self.inicfg.aws_secretkey)
                 bucket = conn.lookup(bucket_name=self.inicfg.log_bucket.lower())
                 k = boto.s3.key.Key(bucket)
                 k.key = os.path.join(
