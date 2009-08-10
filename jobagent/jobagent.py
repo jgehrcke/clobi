@@ -184,18 +184,23 @@ class SimpleDB(object):
 
     def poll_vm_softkill_flag(self):
         """
-        Query SDB for VM status. 'RM_kill_after_job_ordered' is evaluated as
-        the "VM softkill flag". Return True if set; False otherwise
+        Query SDB for soft kill flag 'VM_softkill_flag' Return True if set to
+        '1'; False otherwise.
         """
+        self.logger.debug(("Check if VM status is set to "
+            "'RM_kill_after_job_ordered' in SDB..."))
         try:
-            self.logger.debug(("Check if VM status is set to "
-                "'RM_kill_after_job_ordered' in SDB..."))
             item = self.boto_domainobj_session.get_attributes(
                 item_name=self.inicfg.vm_id,
-                attribute_name='status')
-            self.logger.debug(("SDB VM status: %s" % item['status']))
-            if item['status'] == 'RM_kill_after_job_ordered':
-                return True
+                attribute_name='VM_softkill_flag')
+            if 'VM_softkill_flag' in item:
+                if item['VM_softkill_flag'] == '1':
+                    self.logger.info("VM_softkill_flag set to 1 in SDB")
+                    return True
+                else:
+                    self.logger.debug("VM_softkill_flag set, but not 1.")
+            else:
+                self.logger.debug("VM_softkill_flag not set.")
         except:
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
         return False
@@ -636,7 +641,7 @@ class Job(object):
         try:
             self.logger.info("run Job %s as subprocess" % self.job_id)
             timestr = utc_timestring()
-            stdouterr_file_name = ("%s_%s.log" % (self.job_id,timestr))
+            stdouterr_file_name = ("%s_stdouterr_%s.log"%(self.job_id,timestr))
             self.stdouterr_file_path = os.path.join(
                 self.logdir,
                 stdouterr_file_name)
