@@ -122,7 +122,7 @@ def timestring():
     return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
 def utc_timestring():
-    return time.strftime("UTC%Y%m%d-%H%M%S", time.time())
+    return time.strftime("UTC%Y%m%d-%H%M%S", time.gmtime())
 
 def alarm(last_triggered, interval):
     now = time.time()

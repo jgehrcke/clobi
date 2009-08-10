@@ -55,7 +55,10 @@ def main():
     try:
         logger.debug("parse commandline arguments..")
         start_options = parseargs()
-        jobagent = JobAgent(start_options)
+        jobagent = JobAgent(
+            start_options=start_options,
+            boto_logfile_path=rootlog.get_boto_log_file_path(),
+            jobagent_logfile_path=rootlog.get_ja_log_file_path())
         jobagent.main()
     except:
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
@@ -760,19 +763,47 @@ class Job(object):
         """
         Start subprocess  tar czf arc.tar.gz --ignore-failed-read x x x' to
         compress all desired output files into an archive. Additionally,
-        put job's logfile into the archive, too.
+        put
+        - job's logfile
+        - Job Agents logfile (current state)
+        - boto's logfile
+        into the archive, too.
         """
         # at first process the filenames that were given in the job message
         filename_list = self.output_sandbox_files.split(";")
         tar_files_list = ' '.join(filename_list)
+
         # now add the job's logfile to the list.
         # at first: close it!
         self.stdouterr_file.close()
         # grab the directory and the filename
-        logfiledir = os.path.dirname(self.stdouterr_file_path)
-        logfilename = os.path.basename(self.stdouterr_file_path)
-        # add tar's directory switch to logfiledir; then add logfile:
-        tar_files_list += " -C %s %s" % (logfiledir, logfilename)
+        joblogfiledir = os.path.dirname(self.stdouterr_file_path)
+        joblogfiledir_1lvlup,joblogfiledir_name = os.path.split(joblogfiledir)
+        joblogfilename = os.path.basename(self.stdouterr_file_path)
+        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
+        tar_files_list += " -C %s %s" % (
+            joblogfiledir_1lvlup,
+            os.path.join(joblogfiledir_name,joblogfilename))
+
+        # now add the Job Agents's logfile to the list.
+        # grab the directory and the filename
+        jalogfiledir = os.path.dirname(self.ja_inicfg.jobagent_logfile_path)
+        jalogfiledir_1lvlup,jalogfiledir_name = os.path.split(jalogfiledir)
+        jalogfilename = os.path.basename(self.ja_inicfg.jobagent_logfile_path)
+        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
+        tar_files_list += " -C %s %s" % (
+            jalogfiledir_1lvlup,
+            os.path.join(jalogfiledir_name,jalogfilename))
+
+        # now add boto's logfile to the list.
+        # grab the directory and the filename
+        botologfiledir = os.path.dirname(self.ja_inicfg.boto_logfile_path)
+        botologfiledir_1lvlup,botologfiledir_name = os.path.split(botologfiledir)
+        botologfilename = os.path.basename(self.ja_inicfg.boto_logfile_path)
+        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
+        tar_files_list += " -C %s %s" % (
+            botologfiledir_1lvlup,
+            os.path.join(botologfiledir_name,botologfilename))
 
         cmd = ("tar czf %s --verbose --ignore-failed-read  %s"
             % (self.output_sandbox_arc_file_path, tar_files_list))
@@ -857,7 +888,10 @@ class Job(object):
 
 
 class JobAgent(object):
-    def __init__(self, start_options):
+    def __init__(self,
+            start_options,
+            boto_logfile_path,
+            jobagent_logfile_path):
         """
         Evaluate given userdata. Read instance ID. Get number of cores.
         """
@@ -881,10 +915,18 @@ class JobAgent(object):
         self.inicfg.vm_id = startconfig.get('userdata','vmid')
         self.inicfg.aws_accesskey = startconfig.get('userdata','accesskey')
         self.inicfg.aws_secretkey = startconfig.get('userdata','secretkey')
+        self.inicfg.boto_logfile_path = boto_logfile_path
+        self.inicfg.jobagent_logfile_path = jobagent_logfile_path
 
         #self.logger.debug("read instance ID from %s" % instanceid_file_path)
         #self.inicfg.instance_id = open(instanceid_file_path).read()
         #self.logger.info("instance ID: %s" % self.inicfg.instance_id)
+
+        # in seconds, the higher the value, the cheaper the process..
+        self.inicfg.sqs_poll_job_interval = 30
+        self.inicfg.sdb_poll_softkill_flag_interval = 30
+        self.inicfg.sdb_poll_highestprio_interval = 30
+        self.inicfg.sdb_poll_jobkill_flag = 30
 
         self.logger.debug("get number of cores for this VM..")
         nbr_cores = self.get_number_of_cores()
@@ -895,13 +937,6 @@ class JobAgent(object):
             self.logger.error(("number of cores could not be determined. Set "
                 "it to 1."))
             self.nbr_cores = 1
-
-        # in seconds, the higher the value, the cheaper the process..
-        self.inicfg.sqs_poll_job_interval = 30
-        self.inicfg.sdb_poll_softkill_flag_interval = 30
-        self.inicfg.sdb_poll_highestprio_interval = 30
-        self.inicfg.sdb_poll_jobkill_flag = 30
-
 
         # to be populated / changed during runtime
         self.sdb = None
@@ -1165,16 +1200,18 @@ class JobAgentLogger(object):
             os.makedirs(logdir)
 
         # create log filenames (with prefix from time)
-        log_filename_prefix = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        rm_log_file_path = os.path.join(logdir,log_filename_prefix+"_JobAgent.log")
+        log_filename_prefix = time.strftime("UTC%Y%m%d-%H%M%S", time.gmtime())
+        ja_log_file_path = os.path.join(logdir,log_filename_prefix+"_JobAgent.log")
         boto_log_file_path = os.path.join(logdir,log_filename_prefix+"_boto.log")
+        self.ja_log_file_path = ja_log_file_path
+        self.boto_log_file_path = boto_log_file_path
 
         # set up main/root logger
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.DEBUG)
 
         # file handler for a real file with level DEBUG
-        self.fh = logging.FileHandler(rm_log_file_path, encoding="UTF-8")
+        self.fh = logging.FileHandler(ja_log_file_path, encoding="UTF-8")
         self.fh.setLevel(logging.DEBUG)
         self.formatter_file = logging.Formatter(
             "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
@@ -1211,6 +1248,10 @@ class JobAgentLogger(object):
         self.logger.error(msg)
     def critical(self, msg):
         self.logger.critical(msg)
+    def get_boto_log_file_path(self):
+        return self.boto_log_file_path
+    def get_ja_log_file_path(self):
+        return self.ja_log_file_path
 
 
 class SQSJobMessage(object):

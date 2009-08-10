@@ -104,11 +104,15 @@ class SQSSession(object):
         self.queue_jobnbrs_laststate = {}
         self.logger.debug("get attributes for all SQS queues...")
         for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
-            attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
-            jobnbr = attr['ApproximateNumberOfMessages']
-            self.queue_jobnbrs_laststate[prio] = jobnbr
-            self.logger.info(("approximate number of jobs in queue for "
-                "priority %s: %s" % (prio, jobnbr)))
+            try:
+                attr = queue.get_attributes(
+                    attributes="ApproximateNumberOfMessages")
+                jobnbr = attr['ApproximateNumberOfMessages']
+                self.queue_jobnbrs_laststate[prio] = jobnbr
+                self.logger.info(("approximate number of jobs in queue for "
+                    "priority %s: %s" % (prio, jobnbr)))
+            except:
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
 
     def create_queues(self, resume = False):
         """
@@ -336,8 +340,12 @@ class SimpleDBSession(object):
         # item called Domain with a Count attribute.
 
         # hence, we expect to receive only ONE item, but get a generator:
-        items = self.boto_domainobj_session.select(selectstr)
-        itmlist = list(items)
+        try:
+            items = self.boto_domainobj_session.select(selectstr)
+            itmlist = list(items)
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
         if len(itmlist) == 1:
             try:
                 nbr = int(itmlist[0]['Count'])
