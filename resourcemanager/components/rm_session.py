@@ -38,8 +38,7 @@ import collections
 
 from components.rm_nimbus_clntwrppr import NimbusClientWrapper
 from components.cfg_parse_strzip import SafeConfigParserStringZip
-from components.utils import (check_dir, check_file, timestring, backup_file,
-    Tee, Object)
+from components.utils import *
 
 sys.path.append("components")
 import boto
@@ -540,6 +539,18 @@ class Session(object):
         config.set('userdata','vmid',vm_id)
         config.set('userdata','accesskey',self.inicfg.aws.accesskey)
         config.set('userdata','secretkey',self.inicfg.aws.secretkey)
+        config.set('userdata','ja_sqs_poll_job_interval',
+            str(self.inicfg.ja.ja_sqs_poll_job_interval))
+        config.set('userdata','ja_sdb_poll_softkill_flag_interval',
+            str(self.inicfg.ja.ja_sdb_poll_softkill_flag_interval))
+        config.set('userdata','ja_sdb_poll_highestprio_interval',
+            str(self.inicfg.ja.ja_sdb_poll_highestprio_interval))
+        config.set('userdata','ja_sdb_poll_jobkill_flag',
+            str(self.inicfg.ja.ja_sdb_poll_jobkill_flag))
+        config.set('userdata','ja_log_storage_service',
+            str(self.inicfg.ja.ja_log_storage_service))
+        config.set('userdata','ja_log_bucket',self.inicfg.ja.ja_log_bucket)
+
         cfg = config.write_to_string()
         zipcfg = config.write_to_zipped_string()
         b64zipcfg = base64.b64encode(zipcfg)
@@ -932,6 +943,13 @@ class InitialSessionConfig(object):
         self.sqs.monitor_queues_pollinterval = None
         self.sqs.initial_highest_priority = None
         self.sqs.default_visibility_timeout = None
+        self.ja = Object()
+        self.ja.ja_sqs_poll_job_interval = None
+        self.ja.ja_sdb_poll_softkill_flag_interval = None
+        self.ja.ja_sdb_poll_highestprio_interval = None
+        self.ja.ja_sdb_poll_jobkill_flag = None
+        self.ja.ja_log_storage_service = None
+        self.ja.ja_log_bucket = None
 
         self.parse_session_config_file()
 
@@ -1020,6 +1038,26 @@ class InitialSessionConfig(object):
                                        " %s: %s") % (cloud_index,
                                        nimbus_config_file_abspath))
                     cloud_index += 1
+
+        self.ja.ja_sqs_poll_job_interval = session_config.getfloat(
+            'JobAgents',
+            'ja_sqs_poll_job_interval')
+        self.ja.ja_sdb_poll_softkill_flag_interval = session_config.getfloat(
+            'JobAgents',
+            'ja_sdb_poll_softkill_flag_interval')
+        self.ja.ja_sdb_poll_highestprio_interval = session_config.getfloat(
+            'JobAgents',
+            'ja_sdb_poll_highestprio_interval')
+        self.ja.ja_sdb_poll_jobkill_flag = session_config.getfloat(
+            'JobAgents',
+            'ja_sdb_poll_jobkill_flag')
+        self.ja.ja_log_storage_service = session_config.get(
+            'JobAgents',
+            'ja_log_storage_service')
+        self.ja.ja_log_bucket = session_config.get(
+            'JobAgents',
+            'ja_log_bucket')
+
         self.session_configparser_object = session_config
 
     def print_parsed_session_config_file(self):

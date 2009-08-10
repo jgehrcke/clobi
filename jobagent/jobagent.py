@@ -28,6 +28,7 @@ import sys
 import traceback
 import base64
 import subprocess
+import tarfile
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
 from components.utils import *
@@ -903,13 +904,25 @@ class JobAgent(object):
         #instanceid_file_path = check_file(start_options.instanceid_file_path)
 
         startconfig = self.get_startconfig_from_userdata(userdata_file_path)
-        self.logger.debug("startconfig: \n%s" % self.config_to_string(startconfig))
+        self.logger.debug(("startconfig from userdata: \n%s"
+            % self.config_to_string(startconfig)))
         # The startconfig was created by the ResourceManager:
         # config.add_section('userdata')
         # config.set('userdata','sessionid',self.session_id)
         # config.set('userdata','vmid',vm_id)
         # config.set('userdata','accesskey',self.inicfg.aws.accesskey)
         # config.set('userdata','secretkey',self.inicfg.aws.secretkey)
+        # config.set('userdata','ja_sqs_poll_job_interval',
+            # str(self.inicfg.ja.ja_sqs_poll_job_interval))
+        # config.set('userdata','ja_sdb_poll_softkill_flag_interval',
+            # str(self.inicfg.ja.ja_sdb_poll_softkill_flag_interval))
+        # config.set('userdata','ja_sdb_poll_highestprio_interval',
+            # str(self.inicfg.ja.ja_sdb_poll_highestprio_interval))
+        # config.set('userdata','ja_sdb_poll_jobkill_flag',
+            # str(self.inicfg.ja.ja_sdb_poll_jobkill_flag))
+        # config.set('userdata','ja_log_storage_service',
+            # str(self.inicfg.ja.ja_log_storage_service))
+        # config.set('userdata','ja_log_bucket',self.inicfg.ja.ja_log_bucket)
         self.logger.debug("process ConfigParser config delivered by userdata")
         self.inicfg = Object()
         self.inicfg.sessionid = startconfig.get('userdata','sessionid')
@@ -924,11 +937,28 @@ class JobAgent(object):
         #self.inicfg.instance_id = open(instanceid_file_path).read()
         #self.logger.info("instance ID: %s" % self.inicfg.instance_id)
 
-        # in seconds, the higher the value, the cheaper the process..
-        self.inicfg.sqs_poll_job_interval = 30
-        self.inicfg.sdb_poll_softkill_flag_interval = 30
-        self.inicfg.sdb_poll_highestprio_interval = 30
-        self.inicfg.sdb_poll_jobkill_flag = 30
+        # poll intervals in seconds (the higher, the cheaper the process..)
+        self.inicfg.sqs_poll_job_interval = startconfig.getfloat(
+            'userdata',
+            'ja_sqs_poll_job_interval')
+        self.inicfg.sdb_poll_softkill_flag_interval = startconfig.getfloat(
+            'userdata',
+            'ja_sdb_poll_softkill_flag_interval')
+        self.inicfg.sdb_poll_highestprio_interval = startconfig.getfloat(
+            'userdata',
+            'ja_sdb_poll_highestprio_interval')
+        self.inicfg.sdb_poll_jobkill_flag = startconfig.getfloat(
+            'userdata',
+            'ja_sdb_poll_jobkill_flag')
+
+        self.inicfg.log_storage_service = startconfig.get(
+            'userdata',
+            'ja_log_storage_service')
+        self.inicfg.log_bucket = startconfig.get(
+            'userdata',
+            'ja_log_bucket')
+
+
 
         self.logger.debug("get number of cores for this VM..")
         nbr_cores = self.get_number_of_cores()
@@ -1087,6 +1117,55 @@ class JobAgent(object):
             # sleep for a while, before starting the next turn..
             time.sleep(3)
 
+    def compress_upload_log(self):
+        """
+        Create compressed tar archive of JA stdout / stderr and boto log.
+        Upload to storage service.
+        """
+        tarfile_path = os.path.join(
+            os.path.dirname(self.inicfg.logfile_path),
+            "jobagentlog_%s.tar.bz2" % self.inicfg.vm_id)
+        # this very small task is okay for Python's tarfile module
+        self.logger.info(("MY LOG WILL NOW BE BUNDLED TO %s. THIS IS"
+            " LIKELY THE LAST LOG MESSAGE YOU WILL EVER SEE FROM ME"
+            % tarfile_path))
+        tar = tarfile.open(tarfile_path, "w:bz2")
+        tar.add(
+            self.inicfg.boto_logfile_path,
+            os.path.basename(self.inicfg.boto_logfile_path))
+        tar.add(
+            self.inicfg.logfile_path,
+            os.path.basename(self.inicfg.logfile_path))
+        tar.add(
+            self.inicfg.stderr_logfile_path,
+            os.path.basename(self.inicfg.stderr_logfile_path))
+        tar.close()
+
+        # now upload..
+        self.logger.info("send Job Agent log to %s"
+            % self.inicfg.log_storage_service)
+        if self.inicfg.log_storage_service.lower() == 's3':
+            try:
+                conn = boto.connect_s3(
+                    self.ja_inicfg.aws_accesskey,
+                    self.ja_inicfg.aws_secretkey)
+                bucket = conn.lookup(bucket_name=self.inicfg.log_bucket.lower())
+                k = boto.s3.key.Key(bucket)
+                k.key = os.path.join(
+                    self.inicfg.sessionid,
+                    "jobagentslog",
+                    os.path.basename(tarfile_path))
+                self.logger.info(("store file %s as key %s to bucket %s"
+                    % (tarfile_path, k.key, bucket.name)))
+                k.set_contents_from_filename(tarfile_path)
+                return True
+            except:
+                self.logger.critical("Error while uploading log archive")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("unkown storage service")
+        return False
+
     def shutdown(self):
         """
         This is the last method executed by JobAgent, because it invokes a
@@ -1094,9 +1173,10 @@ class JobAgent(object):
         - upload logs
         - set JobAgent/ VM status in SDB to 'JA_kill_triggered'
         """
-        self.logger.info("SHUTDOWN")
+        self.logger.info(("cleaning up: compress and upload Job Agent log,"
+            " notify SimpleDB and shut down the system"))
+        self.compress_upload_log()
         sys.exit(1)
-        #self.upload_log()
         #self.sdb.set_jobagent_shutdown()
         #os.system("shutdown -h now")
 
