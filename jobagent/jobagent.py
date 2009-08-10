@@ -40,17 +40,20 @@ JOB_WORK_BASEDIR = "/mnt/jobs_workdir/"
 JOB_LOG_BASEDIR = "/mnt/jobs_logdir/"
 
 def main():
-    logdir = "jobagent_logs"
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
+    jobagent_logdir = "jobagent_log"
+    jobagent_logdir = os.path.abspath(jobagent_logdir)
+    if not os.path.exists(jobagent_logdir):
+        os.makedirs(jobagent_logdir)
 
     # log stderr to stderr and to a real file
-    stderr_logfile_path = os.path.join(logdir, utc_timestring() + "_JA_stderr.log")
+    stderr_logfile_path = os.path.join(
+        jobagent_logdir,
+        "%s_JA_stderr.log" % utc_timestring())
     stderr_log_fd = open(stderr_logfile_path,'w')
     sys.stderr = Tee(sys.stderr, stderr_log_fd)
 
     # configure logger
-    rootlog = JobAgentLogger(logdir)
+    rootlog = JobAgentLogger(jobagent_logdir)
 
     try:
         logger.debug("parse commandline arguments..")
@@ -58,7 +61,8 @@ def main():
         jobagent = JobAgent(
             start_options=start_options,
             boto_logfile_path=rootlog.get_boto_log_file_path(),
-            jobagent_logfile_path=rootlog.get_ja_log_file_path())
+            ja_logfile_path=rootlog.get_ja_log_file_path(),
+            ja_stderr_logfile_path=stderr_logfile_path)
         jobagent.main()
     except:
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
@@ -517,8 +521,8 @@ class Job(object):
         Job and log dir must not exist. Create them then. Build important
         pathts (e.g. input sandbox archive file path)
         """
-        self.workingdir = os.path.join(JOB_WORK_BASEDIR,self.job_id)
-        self.logdir = os.path.join(JOB_LOG_BASEDIR,self.job_id)
+        self.workingdir = os.path.join(JOB_WORK_BASEDIR,"workdir_"+self.job_id)
+        self.logdir = os.path.join(JOB_LOG_BASEDIR,"joblog_"+self.job_id)
         self.logger.info(("Set up working dir %s and log dir %s"
             % (self.workingdir, self.logdir)))
         if os.path.exists(self.workingdir):
@@ -765,10 +769,20 @@ class Job(object):
         compress all desired output files into an archive. Additionally,
         put
         - job's logfile
-        - Job Agents logfile (current state)
+        - Job Agents stdout logfile and stderr logfile (current state)
         - boto's logfile
         into the archive, too.
         """
+        def tar_dirswitch_append_file_with_1lvlup_dir(file_abspath):
+            # grab the directory and the filename
+            filedir = os.path.dirname(file_abspath)
+            filedir_1lvlup,filedir_name = os.path.split(filedir)
+            filename = os.path.basename(file_abspath)
+            # tar's directory switch to /path/dir1/dir2 and then add dirN/file:
+            return " -C %s %s" % (
+                filedir_1lvlup,
+                os.path.join(filedir_name,filename))
+
         # at first process the filenames that were given in the job message
         filename_list = self.output_sandbox_files.split(";")
         tar_files_list = ' '.join(filename_list)
@@ -776,34 +790,20 @@ class Job(object):
         # now add the job's logfile to the list.
         # at first: close it!
         self.stdouterr_file.close()
-        # grab the directory and the filename
-        joblogfiledir = os.path.dirname(self.stdouterr_file_path)
-        joblogfiledir_1lvlup,joblogfiledir_name = os.path.split(joblogfiledir)
-        joblogfilename = os.path.basename(self.stdouterr_file_path)
-        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
-        tar_files_list += " -C %s %s" % (
-            joblogfiledir_1lvlup,
-            os.path.join(joblogfiledir_name,joblogfilename))
+        tar_files_list += tar_dirswitch_append_file_with_1lvlup_dir(
+            self.stdouterr_file_path)
 
-        # now add the Job Agents's logfile to the list.
-        # grab the directory and the filename
-        jalogfiledir = os.path.dirname(self.ja_inicfg.jobagent_logfile_path)
-        jalogfiledir_1lvlup,jalogfiledir_name = os.path.split(jalogfiledir)
-        jalogfilename = os.path.basename(self.ja_inicfg.jobagent_logfile_path)
-        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
-        tar_files_list += " -C %s %s" % (
-            jalogfiledir_1lvlup,
-            os.path.join(jalogfiledir_name,jalogfilename))
+        # now add the Job Agents's logfile (STDOUT) to the list.
+        tar_files_list += tar_dirswitch_append_file_with_1lvlup_dir(
+            self.ja_inicfg.logfile_path)
+
+        # now add the Job Agents's logfile (STDERR) to the list.
+        tar_files_list += tar_dirswitch_append_file_with_1lvlup_dir(
+            self.ja_inicfg.stderr_logfile_path)
 
         # now add boto's logfile to the list.
-        # grab the directory and the filename
-        botologfiledir = os.path.dirname(self.ja_inicfg.boto_logfile_path)
-        botologfiledir_1lvlup,botologfiledir_name = os.path.split(botologfiledir)
-        botologfilename = os.path.basename(self.ja_inicfg.boto_logfile_path)
-        # tar's directory switch to /path/dir1/dir2 and then add dirN/logfile:
-        tar_files_list += " -C %s %s" % (
-            botologfiledir_1lvlup,
-            os.path.join(botologfiledir_name,botologfilename))
+        tar_files_list += tar_dirswitch_append_file_with_1lvlup_dir(
+            self.ja_inicfg.boto_logfile_path)
 
         cmd = ("tar czf %s --verbose --ignore-failed-read  %s"
             % (self.output_sandbox_arc_file_path, tar_files_list))
@@ -891,7 +891,8 @@ class JobAgent(object):
     def __init__(self,
             start_options,
             boto_logfile_path,
-            jobagent_logfile_path):
+            ja_logfile_path,
+            ja_stderr_logfile_path,):
         """
         Evaluate given userdata. Read instance ID. Get number of cores.
         """
@@ -916,7 +917,8 @@ class JobAgent(object):
         self.inicfg.aws_accesskey = startconfig.get('userdata','accesskey')
         self.inicfg.aws_secretkey = startconfig.get('userdata','secretkey')
         self.inicfg.boto_logfile_path = boto_logfile_path
-        self.inicfg.jobagent_logfile_path = jobagent_logfile_path
+        self.inicfg.logfile_path = ja_logfile_path
+        self.inicfg.stderr_logfile_path = ja_stderr_logfile_path
 
         #self.logger.debug("read instance ID from %s" % instanceid_file_path)
         #self.inicfg.instance_id = open(instanceid_file_path).read()
@@ -949,6 +951,9 @@ class JobAgent(object):
         self.job_machine_index_counter = 0
         self.softkill_flag = False
         self.jobs = []
+        # import pprint
+        # pprint.pprint(vars(self))
+        # pprint.pprint(vars(self.inicfg))
 
     def main(self):
         """
