@@ -127,6 +127,7 @@ def parseargs():
     version = '0'
     description = ("Resource Manager")
     usage = ("%prog --start --sessionconfig path/to/config.cfg \n"
+             "%prog --resume --sessionconfig path/to/config.cfg \n"
              "try -h, --help and --version")
     parser = optparse.OptionParser(usage=usage,version=version,description=description)
 

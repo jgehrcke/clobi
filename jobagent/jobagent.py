@@ -56,10 +56,9 @@ def main():
 
     # set up logger
     rootlog = JobAgentLogger(jobagent_logdir)
-
+    logger.debug("parse commandline arguments..")
+    start_options = parseargs()
     try:
-        logger.debug("parse commandline arguments..")
-        start_options = parseargs()
         jobagent = JobAgent(
             start_options=start_options,
             boto_logfile_path=rootlog.get_boto_log_file_path(),
@@ -649,7 +648,7 @@ class Job(object):
             self.job_msg_creation_time = jobmsg.get_job_msg_creation_time()
             self.output_sandbox_files = jobmsg.get_output_sandbox_files()
             self.job_owner = jobmsg.get_job_owner()
-            self.ganga_job_id = jobmsg.get_ganga_job_id()
+            self.production_system_job_id = jobmsg.get_production_system_job_id()
         except:
             self.logger.critical("Error while parsing SQS job message.")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -1499,10 +1498,10 @@ class SQSJobMessage(object):
         self.config.set(self.section,'job_owner',owner)
     def get_job_owner(self):
         return self.config.get(self.section,'job_owner')
-    def set_ganga_job_id(self, ganga_job_id):
-        self.config.set(self.section,'ganga_job_id',ganga_job_id)
-    def get_ganga_job_id(self):
-        return self.config.get(self.section,'ganga_job_id')
+    def set_production_system_job_id(self, id):
+        self.config.set(self.section,'production_system_job_id', id)
+    def get_production_system_job_id(self):
+        return self.config.get(self.section,'production_system_job_id')
 
 def parseargs():
     """
@@ -1513,8 +1512,7 @@ def parseargs():
     """
     version = '0'
     description = ("Clobi Job Agent")
-    usage = ("%prog --userdatafile path --instanceidfile path \n"
-             "try -h, --help and --version")
+    usage = ("try -h, --help and --version")
     parser = optparse.OptionParser(
         usage=usage,
         version=version,

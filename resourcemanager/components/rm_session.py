@@ -479,6 +479,11 @@ class Session(object):
         self.save_vms_file_last_change_time = 0
 
     def write_job_management_interface_config_file(self):
+        """
+        Write all information that is needed to submit/remove/kill/monitor jobs
+        and to send input sandbox to a file called "Job Management Interface
+        configuration file".
+        """
         config = ConfigParser.SafeConfigParser()
         config.add_section('JMI_config')
         config.set('JMI_config','jmi_aws_accesskey',
