@@ -670,7 +670,9 @@ class Job(object):
             if self.returncode is not None:
                 self.logger.info(("job returned with returncode %s"
                     % self.returncode))
+                self.subprocess = None
                 self.finish()
+                self.done = True
 
     def finish(self):
         """
@@ -688,7 +690,6 @@ class Job(object):
                     self.sdb.update_job_state(self.job_id, 'completed_error')
                 else:
                     self.sdb.update_job_state(self.job_id, 'completed_success')
-        self.done = True
 
     def start(self):
         """
@@ -725,7 +726,7 @@ class Job(object):
             # Hence, we have to delete the message, because the other VM simply
             # can't.
         elif initreturn == 'job_removed' or initreturn == 'job_killed':
-            self.logger.error("Job killed/removed; now delete SQS msg")
+            self.logger.error("marked as killed/removed; now delete SQS msg")
             # here, it is clear that it makes sense to delete the SQS msg :-)
         else:
             self.logger.error("Initialization problem. Job processing aborted.")
@@ -939,14 +940,16 @@ class Job(object):
         """
         if self.subprocess is not None:
             self.logger.info("KILL job's subprocess")
-        try:
-            # new in Python 2.6
-            self.subprocess.kill()
-            self.sdb.update_job_state(self.job_id, 'killed')
-            return True
-        except:
-            self.logger.critical("Error while killing subprocess")
-            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            try:
+                # new in Python 2.6
+                self.subprocess.kill()
+                self.sdb.update_job_state(self.job_id, 'killed')
+                return True
+            except:
+                self.logger.critical("Error while killing subprocess")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.debug("job's subprocess is None -- nothing to kill")
 
     def check_job_kill_flag(self):
         """
@@ -1127,9 +1130,8 @@ class JobAgent(object):
             # happened
             job.check_and_manage()
             if job.done:
-                self.logger.debug(("Job %s is done. Mark it for deletion."
-                    % job.job_id))
-                # this job is done, mark it for deletion
+                self.logger.debug(("Job.done is true."
+                    " Mark object for deletion."))
                 delete_indices.append(idx)
 
         # delete job objects that contain finished jobs
