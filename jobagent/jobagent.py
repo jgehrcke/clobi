@@ -53,7 +53,7 @@ def main():
     stderr_log_fd = open(stderr_logfile_path,'w')
     sys.stderr = Tee(sys.stderr, stderr_log_fd)
 
-    # configure logger
+    # set up logger
     rootlog = JobAgentLogger(jobagent_logdir)
 
     try:
@@ -64,14 +64,29 @@ def main():
             boto_logfile_path=rootlog.get_boto_log_file_path(),
             ja_logfile_path=rootlog.get_ja_log_file_path(),
             ja_stderr_logfile_path=stderr_logfile_path)
+        # this main method does *all* the work. In a proper use case, the script
+        # won't return from this method. Instead, machine shutdown should be
+        # invoked within this method, remotely controlled via SDB flag.
         jobagent.main()
     except:
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
+        try:
+            jobagent.self.compress_upload_log()
+        except:
+            logger.critical("Could not save logs. Error:")
+            logger.critical("Traceback:\n%s"%traceback.format_exc())
     finally:
-        # some other cleanup
         stderr_log_fd.close()
-        # shut down VM?
+        # Here, one could invoke a system shutdown command. My first
+        # decision is not to do so, because it will be difficult to debug a
+        # system that automatically shuts itself down after an error
+        # occured. Maybe logfile saving was not possible: Then, the only way to
+        # debug is to log into the VM via ssh and look what's going.
+        # On the other hand, starting many VMs which won't shut down
+        # properly because of an error in jobagent.main() will result in many
+        # VMs that have to be detected as "failed" and have to be shut down
+        # manually.
 
 
 class SimpleDB(object):
