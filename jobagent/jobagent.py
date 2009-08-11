@@ -41,6 +41,7 @@ JOB_WORK_BASEDIR = "/mnt/jobs_workdir/"
 JOB_LOG_BASEDIR = "/mnt/jobs_logdir/"
 
 def main():
+    # define and create Job Agent's log dir (for stdout / stderr of this script)
     jobagent_logdir = "jobagent_log"
     jobagent_logdir = os.path.abspath(jobagent_logdir)
     if not os.path.exists(jobagent_logdir):
@@ -98,9 +99,10 @@ class SimpleDB(object):
         self.logger = logging.getLogger("jobagent.py.SimpleDB")
         self.logger.debug("initialize SimpleDB object")
 
+        # constructor arguments
         self.inicfg = initial_jobagent_config
 
-        # init boto objects
+        # init boto SDB connection
         self.logger.debug("create SimpleDB connection object")
         self.sdbconn = boto.connect_sdb(self.inicfg.aws_accesskey,
                                         self.inicfg.aws_secretkey)
@@ -116,8 +118,7 @@ class SimpleDB(object):
 
     def check_domains(self):
         """
-        Call self.create_domain() in resume mode for all domains this session
-        needs.
+        Call self.check_domain() for all domains this session needs.
         """
         self.logger.info("check SDB domain for session & VM data...")
         self.boto_domainobj_session = self.check_domain(
@@ -144,7 +145,7 @@ class SimpleDB(object):
 
     def get_highest_priority(self):
         """
-        Get HighestPriority flag from SDB
+        Get HighestPriority flag from SDB.
         """
         self.logger.debug("Retrieve HighestPriority item from SDB")
         try:
@@ -159,8 +160,8 @@ class SimpleDB(object):
                 return hp
             except KeyError:
                 self.logger.critical(("No 'HighestPriority' value set in SDB!"
-                    " Means that something went very wrong. It must be set by RM"
-                    " before any VM is started up. I'll exit now"))
+                    " Means that something went very wrong. It must be set by"
+                    " RM before any VM is started up. I'll exit now"))
                 sys.exit(1)
         else:
             self.logger.critical(("No 'session_props' item set in SDB! This"
@@ -170,7 +171,7 @@ class SimpleDB(object):
 
     def register_ja_started(self, second=False):
         """
-        Register Job Agent as 'JA_running' in SDB. If an error occures, wait
+        Register VM/Job Agent as 'JA_running' in SDB. If an error occures, wait
         some time and simply try again. If an error appears again, return False.
         This will result in JA & VM shutdown.
         Try two times, because a "random web service error" at this point can
@@ -182,7 +183,7 @@ class SimpleDB(object):
             item = self.boto_domainobj_session.get_item(self.inicfg.vm_id)
             timestr = utc_timestring()
             if item is not None:
-                self.logger.info(("updating SDB item %s with 'status=JA_running' "
+                self.logger.info(("updating SDB item %s with status=JA_running "
                     "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
                 item['status'] = 'JA_running'
                 item['JA_startuptime'] = timestr
@@ -433,7 +434,8 @@ class SQS(object):
         """
         self.logger.debug("get attributes for all SQS queues...")
         for prio, queue  in self.queues_priorities_botosqsqueueobjs.items():
-            attr = queue.get_attributes(attributes="ApproximateNumberOfMessages")
+            attr = queue.get_attributes(
+                attributes="ApproximateNumberOfMessages")
             jobnbr = attr['ApproximateNumberOfMessages']
             self.queue_jobnbrs_laststate[prio] = jobnbr
             self.logger.info(("queue for priority %s:\napprox nbr of jobs: %s"
@@ -793,7 +795,8 @@ class Job(object):
                 conn = boto.connect_s3(
                     self.ja_inicfg.aws_accesskey,
                     self.ja_inicfg.aws_secretkey)
-                bucket = conn.lookup(bucket_name=self.sandbox_archive_bucket.lower())
+                bucket = conn.lookup(
+                    bucket_name=self.sandbox_archive_bucket.lower())
                 k = boto.s3.key.Key(bucket)
                 k.key = self.input_sandbox_archive_key
                 self.logger.info(("Retrieve key %s from bucket %s to file %s"
@@ -915,7 +918,8 @@ class Job(object):
                 conn = boto.connect_s3(
                     self.ja_inicfg.aws_accesskey,
                     self.ja_inicfg.aws_secretkey)
-                bucket = conn.lookup(bucket_name=self.sandbox_archive_bucket.lower())
+                bucket = conn.lookup(
+                    bucket_name=self.sandbox_archive_bucket.lower())
                 k = boto.s3.key.Key(bucket)
                 k.key = self.output_sandbox_archive_key
                 self.logger.info(("store file %s as key %s to bucket %s"
@@ -1081,8 +1085,8 @@ class JobAgent(object):
             new_highest_priority = self.sdb.get_highest_priority()
             self.sdb_highestprio_last_polled = time.time()
             if new_highest_priority is None:
-                self.logger.critical(("The value for HighestPriority could"
-                    " not be updated SDB. Hopefully it works in the next turn."))
+                self.logger.critical(("The value for HighestPriority could not"
+                    " be updated SDB. Hopefully it works in the next turn."))
                 return
             if new_highest_priority != self.highest_priority:
                 self.highest_priority = new_highest_priority
@@ -1137,7 +1141,8 @@ class JobAgent(object):
     def check_vm_softkill_flag(self):
         """
         Query SimpleDB for the soft kill flag. But don't do it every time this
-        method is called. Instead, consider self.inicfg.sdb_poll_softkill_flag_interval
+        method is called. Instead, consider
+        self.inicfg.sdb_poll_softkill_flag_interval
         """
         if alarm(
         self.sdb_softkill_flag_last_polled,
@@ -1185,7 +1190,7 @@ class JobAgent(object):
             self.check_and_manage_running_jobs()
 
             # sleep for a while, before starting the next turn..
-            time.sleep(3)
+            time.sleep(6)
 
     def compress_upload_log(self):
         """
@@ -1357,8 +1362,12 @@ class JobAgentLogger(object):
 
         # create log filenames (with prefix from time)
         log_filename_prefix = time.strftime("UTC%Y%m%d-%H%M%S", time.gmtime())
-        ja_log_file_path = os.path.join(logdir,log_filename_prefix+"_JobAgent.log")
-        boto_log_file_path = os.path.join(logdir,log_filename_prefix+"_boto.log")
+        ja_log_file_path = os.path.join(
+            logdir,
+            log_filename_prefix+"_JobAgent.log")
+        boto_log_file_path = os.path.join(
+            logdir,
+            log_filename_prefix+"_boto.log")
         self.ja_log_file_path = ja_log_file_path
         self.boto_log_file_path = boto_log_file_path
 
@@ -1528,4 +1537,3 @@ if __name__ == "__main__":
     # create module logger
     logger = logging.getLogger("jobagent.py")
     main()
-
