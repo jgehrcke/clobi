@@ -816,7 +816,7 @@ class Job(object):
         Extract via tar subprocess. Assume gzipped tarfile.
         """
         # extract input sandbox archive to job working directory
-        cmd = ("tar xzf %s --verbose -C %s"
+        cmd = ("tar xjf %s --verbose -C %s"
             % (self.input_sandbox_arc_file_path,self.workingdir))
         self.logger.info(("run input sandbox archive extraction as subprocess:"
             " %s" % cmd))
@@ -880,7 +880,7 @@ class Job(object):
         tar_files_list += tar_dirswitch_append_file_with_1lvlup_dir(
             self.ja_inicfg.boto_logfile_path)
 
-        cmd = ("tar czf %s --verbose --ignore-failed-read  %s"
+        cmd = ("tar cjf %s --verbose --ignore-failed-read  %s"
             % (self.output_sandbox_arc_file_path, tar_files_list))
         self.logger.info(("run output sandbox compression as subprocess:"
             " %s in workingdir %s" % (cmd, self.workingdir)))
