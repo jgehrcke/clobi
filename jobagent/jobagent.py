@@ -171,6 +171,7 @@ class SimpleDB(object):
                     "and 'JA_startuptime=%s'" % (self.inicfg.vm_id, timestr)))
                 item['status'] = 'JA_running'
                 item['JA_startuptime'] = timestr
+                item['nbr_cores'] = self.inicfg.nbr_cores
                 item.save()
                 # at this point everything was successfull. return True.
                 return True
@@ -193,6 +194,24 @@ class SimpleDB(object):
         self.logger.error(("This is the second time register_ja_started() was"
             " called and the second time an exceptional error appeared."))
         return False
+
+    def set_shutdown_triggered(self)
+        """
+        The Job Agent is in shutdown phase. Set this information in SDB.
+        """
+        try:
+            self.logger.info(("VM %s: set 'status' value to"
+                " 'JA_shutdown_triggered""%(self.inicfg.vm_id))
+            temp = {}
+            temp['status'] = "JA_shutdown_triggered"
+            temp['JA_shutdowntime'] = utc_timestring()
+            item = self.boto_domainobj_session.put_attributes(
+                item_name=self.inicfg.vm_id,
+                attributes=temp)
+            return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
     def poll_job_kill_flag(self, job_id):
         """
@@ -1179,8 +1198,8 @@ class JobAgent(object):
         self.logger.info(("cleaning up: compress and upload Job Agent log,"
             " notify SimpleDB and shut down the system"))
         self.compress_upload_log()
+        self.sdb.set_shutdown_triggered()
         sys.exit(1)
-        #self.sdb.set_jobagent_shutdown()
         #os.system("shutdown -h now")
 
     def init_sdb(self):
