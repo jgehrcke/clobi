@@ -287,15 +287,19 @@ class SimpleDB(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
-    def initialize_job(self, job_id, sqs_msg_id):
+    def initialize_job(self, job_id, sqs_msg_id, job_machine_index):
         """
         Update SDB that we've received a job. The expected case is that an item
         with the job id is NOT existing in the jobs' SDB domain.
 
         Later on, this method should be extended to edit VMs' SDB domain, too:
-        for one VM item all job ID's should be listed that this VM got via SQS.
+        - for one VM item all job ID's should be listed (this VM got via SQS)
         """
+
+        # at first create JOB item in JOB SDB domain
         try:
+            self.logger.debug(("Try to receive SDB item %s from domain %s"
+                % (job_id,self.boto_domainobj_jobs.name)))
             item = self.boto_domainobj_jobs.get_item(job_id)
         except:
             self.logger.critical("SDB error")
@@ -334,6 +338,8 @@ class SimpleDB(object):
                     % job_id))
                 return False
         try:
+            self.logger.info(("Item %s did not exist (as expected). Create"
+                " it: set status/inittime/sqs_message_id" % job_id))
             item = self.boto_domainobj_jobs.new_item(job_id)
             item['status'] = 'initialized'
             item['inittime'] = utc_timestring()
@@ -343,6 +349,21 @@ class SimpleDB(object):
             self.logger.critical("SDB error")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
+
+        # now edit VM item in SESSION SDB domain to modify the number
+        # of jobs initialized by this JobAgent / VM. If this does not succeed,
+        # do not return False because it's not crucial
+        try:
+            self.logger.info(("VM %s: set 'nbr_jobs_initialized' value to %s"
+                % (self.inicfg.vm_id, job_machine_index)))
+            temp = {}
+            temp['nbr_jobs_initialized'] = str(job_machine_index)
+            item = self.boto_domainobj_session.put_attributes(
+                item_name=self.inicfg.vm_id,
+                attributes=temp)
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+
         return 'success'
 
 
@@ -510,6 +531,15 @@ class SQS(object):
 
 class Job(object):
     def __init__(self, boto_sqsmsg, ja_inicfg, sdb, sqs, job_machine_index):
+        """
+        @params: boto_sqsmsg: boto SQS Message object containing job info
+                 ja_inicfg: Job Agent initial config object
+                 sdb: SimpleDB class instance
+                 sqs: SQS class instance
+                 job_machine_index: A "counter": how many Job objects have been
+                                    initialized so far. This is used to update
+                                    VM's 'nbr_jobs_initialized' attribute in SDB
+        """
         self.logger = logging.getLogger("jobagent.py.Job.%s"%job_machine_index)
         self.logger.debug("initialize Job object")
         self.ja_inicfg = ja_inicfg
@@ -646,7 +676,10 @@ class Job(object):
         input sandbox and start subprocess.
         """
         self.logger.info("Job SDB initialization (check/create item)...")
-        initreturn = self.sdb.initialize_job(self.job_id, self.boto_sqsmsg.id)
+        initreturn = self.sdb.initialize_job(
+            self.job_id,
+            self.boto_sqsmsg.id,
+            self.machine_index)
         if initreturn == 'success':
             self.logger.info("Job SDB init successfull.")
             if self.sdb.update_job_state(self.job_id, 'get_input'):
@@ -969,7 +1002,6 @@ class JobAgent(object):
         self.inicfg.sdb_poll_jobkill_flag = startconfig.getfloat(
             'userdata',
             'ja_sdb_poll_jobkill_flag')
-
         self.inicfg.log_storage_service = startconfig.get(
             'userdata',
             'ja_log_storage_service')
@@ -997,7 +1029,7 @@ class JobAgent(object):
         self.sqs_jobs_last_polled = 0
         self.sdb_softkill_flag_last_polled = 0
         self.sdb_highestprio_last_polled = 0
-        self.job_machine_index_counter = 0
+        self.job_machine_index_counter = 1
         self.softkill_flag = False
         self.jobs = []
         # import pprint
@@ -1058,6 +1090,8 @@ class JobAgent(object):
                     self.sqs,
                     self.job_machine_index_counter))
                 self.job_machine_index_counter += 1
+                self.logger.debug(("Increased job machine index counter: %s"
+                    % self.job_machine_index_counter))
         else:
             self.logger.debug("SQS poll job delayed..")
 
