@@ -72,7 +72,7 @@ def main():
         logger.critical("Job Agent ended exceptionally. Try to save some logs.")
         logger.critical("Traceback:\n%s"%traceback.format_exc())
         try:
-            jobagent.self.compress_upload_log()
+            jobagent.compress_upload_log()
         except:
             logger.critical("Could not save logs. Error:")
             logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -574,6 +574,8 @@ class Job(object):
         self.sdb_jobkill_flag_last_polled = 0
         self.done = None
 
+        self.job_id = None
+
         if not (self.evaluate_sqsmsg() and self.set_up_job_dirs_files()):
             self.logger.critical("Job initialization stopped.")
             # done = True means that this job object gets deleted by JobAgent
@@ -656,6 +658,7 @@ class Job(object):
         """
         Check job's state. Act accordingly.
         """
+        self.logger.debug("check and manage job %s" % self.job_id)
         if self.check_job_kill_flag():
             if self.kill():
                 self.logger.debug("subprocess killed.")
@@ -1105,8 +1108,6 @@ class JobAgent(object):
                     self.sqs,
                     self.job_machine_index_counter))
                 self.job_machine_index_counter += 1
-                self.logger.debug(("Increased job machine index counter: %s"
-                    % self.job_machine_index_counter))
         else:
             self.logger.debug("SQS poll job delayed..")
 
@@ -1116,7 +1117,6 @@ class JobAgent(object):
         (subprocess return etc), act accordingly.
         Delete job from the joblist, if it's totally finished (DONE!)
         """
-        self.logger.debug("check and manage running jobs..")
         delete_indices = []
         for idx, job in enumerate(self.jobs):
             # this actually checks the job and acts accordingly to what's
