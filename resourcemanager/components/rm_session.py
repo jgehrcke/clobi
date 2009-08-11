@@ -545,8 +545,8 @@ class Session(object):
             str(self.inicfg.ja.ja_sdb_poll_softkill_flag_interval))
         config.set('userdata','ja_sdb_poll_highestprio_interval',
             str(self.inicfg.ja.ja_sdb_poll_highestprio_interval))
-        config.set('userdata','ja_sdb_poll_jobkill_flag',
-            str(self.inicfg.ja.ja_sdb_poll_jobkill_flag))
+        config.set('userdata','ja_sdb_poll_jobkill_flag_interval',
+            str(self.inicfg.ja.ja_sdb_poll_jobkill_flag_interval))
         config.set('userdata','ja_log_storage_service',
             str(self.inicfg.ja.ja_log_storage_service))
         config.set('userdata','ja_log_bucket',self.inicfg.ja.ja_log_bucket)
@@ -947,7 +947,7 @@ class InitialSessionConfig(object):
         self.ja.ja_sqs_poll_job_interval = None
         self.ja.ja_sdb_poll_softkill_flag_interval = None
         self.ja.ja_sdb_poll_highestprio_interval = None
-        self.ja.ja_sdb_poll_jobkill_flag = None
+        self.ja.ja_sdb_poll_jobkill_flag_interval = None
         self.ja.ja_log_storage_service = None
         self.ja.ja_log_bucket = None
 
@@ -1048,9 +1048,9 @@ class InitialSessionConfig(object):
         self.ja.ja_sdb_poll_highestprio_interval = session_config.getfloat(
             'JobAgents',
             'ja_sdb_poll_highestprio_interval')
-        self.ja.ja_sdb_poll_jobkill_flag = session_config.getfloat(
+        self.ja.ja_sdb_poll_jobkill_flag_interval = session_config.getfloat(
             'JobAgents',
-            'ja_sdb_poll_jobkill_flag')
+            'ja_sdb_poll_jobkill_flag_interval')
         self.ja.ja_log_storage_service = session_config.get(
             'JobAgents',
             'ja_log_storage_service')

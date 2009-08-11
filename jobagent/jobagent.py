@@ -933,7 +933,7 @@ class Job(object):
         """
         if alarm(
         self.sdb_jobkill_flag_last_polled,
-        self.ja_inicfg.sdb_poll_jobkill_flag):
+        self.ja_inicfg.sdb_poll_jobkill_flag_interval):
             self.logger.debug("Triggered to check kill flag")
             self.kill_flag = self.sdb.poll_job_kill_flag(self.job_id)
             self.sdb_jobkill_flag_last_polled = time.time()
@@ -970,8 +970,8 @@ class JobAgent(object):
             # str(self.inicfg.ja.ja_sdb_poll_softkill_flag_interval))
         # config.set('userdata','ja_sdb_poll_highestprio_interval',
             # str(self.inicfg.ja.ja_sdb_poll_highestprio_interval))
-        # config.set('userdata','ja_sdb_poll_jobkill_flag',
-            # str(self.inicfg.ja.ja_sdb_poll_jobkill_flag))
+        # config.set('userdata','ja_sdb_poll_jobkill_flag_interval',
+            # str(self.inicfg.ja.ja_sdb_poll_jobkill_flag_interval))
         # config.set('userdata','ja_log_storage_service',
             # str(self.inicfg.ja.ja_log_storage_service))
         # config.set('userdata','ja_log_bucket',self.inicfg.ja.ja_log_bucket)
@@ -999,9 +999,9 @@ class JobAgent(object):
         self.inicfg.sdb_poll_highestprio_interval = startconfig.getfloat(
             'userdata',
             'ja_sdb_poll_highestprio_interval')
-        self.inicfg.sdb_poll_jobkill_flag = startconfig.getfloat(
+        self.inicfg.sdb_poll_jobkill_flag_interval = startconfig.getfloat(
             'userdata',
-            'ja_sdb_poll_jobkill_flag')
+            'ja_sdb_poll_jobkill_flag_interval')
         self.inicfg.log_storage_service = startconfig.get(
             'userdata',
             'ja_log_storage_service')
