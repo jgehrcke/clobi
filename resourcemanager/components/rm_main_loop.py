@@ -129,6 +129,8 @@ class ResourceManagerMainLoop(threading.Thread):
                     self.show_vm_info(uicmd)
                 elif uicmd.startswith('set_highest_prio'):
                     self.set_highest_prio(uicmd)
+                elif uicmd.startswith('write_jmi_cfg_file'):
+                    self.write_jmi_cfg_file()
                 else:
                     self.ui_msg('unknown command')
 
@@ -148,6 +150,10 @@ class ResourceManagerMainLoop(threading.Thread):
             # this basically builds the `started_vms_string` and displays it
             self.display_started_vms()
 
+    def write_jmi_cfg_file(self):
+        self.ui_msg(("Instructed to write Clobi's Job Management Interface"
+            " configuration file..."))
+        self.session.write_job_management_interface_config_file()
 
     def display_started_vms(self):
         """
@@ -384,7 +390,8 @@ class ResourceManagerMainLoop(threading.Thread):
             +"\n* show_vm_info vm-X:      Show VM info as stored in save.session.vms."
             +"\n* set_highest_prio HP:    Set highest priority to HP; create/delete queues."
             +"\n* poll_sdb:               Update SDB monitoring data."
-            +"\n* poll_sqs:               Update SQS monitoring data.")
+            +"\n* poll_sqs:               Update SQS monitoring data."
+            +"\n* write_jmi_cfg_file:     Write Job Management Interface config file.")
         self.ui_msg(helpstring)
 
     def poll_command_queue(self, timeout):

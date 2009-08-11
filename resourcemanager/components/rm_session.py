@@ -478,8 +478,28 @@ class Session(object):
         self.ec2 = None
         self.save_vms_file_last_change_time = 0
 
-    def change_highest_priority(self, new_hp):
+    def write_job_management_interface_config_file(self):
+        config = ConfigParser.SafeConfigParser()
+        config.add_section('JMI_config')
+        config.set('JMI_config','jmi_aws_accesskey',
+            self.inicfg.aws.accesskey)
+        config.set('JMI_config','jmi_aws_secretkey',
+            self.inicfg.aws.secretkey)
+        config.set('JMI_config','jmi_session_id',
+            self.session_id)
+        config.set('JMI_config','jmi_sandbox_storage_service',
+            self.inicfg.jmi.jmi_sandbox_storage_service)
+        config.set('JMI_config','jmi_sandbox_bucket',
+            self.inicfg.jmi.jmi_sandbox_bucket)
+        jmi_configfile_path = os.path.join(
+            os.path.dirname(self.session_config_file_path),
+            "clobi_JMI_%s.cfg" % self.session_id)
+        self.logger.info(("Write Clobi's Job Management Interface configuration"
+            " file to %s" % jmi_configfile_path))
+        config.write(open(jmi_configfile_path,'w'))
 
+
+    def change_highest_priority(self, new_hp):
         self.sqs_session.generate_queues_priorities_names(
             highest_priority=new_hp)
         if self.sqs_session.create_queues(resume=True):
@@ -950,6 +970,9 @@ class InitialSessionConfig(object):
         self.ja.ja_sdb_poll_jobkill_flag_interval = None
         self.ja.ja_log_storage_service = None
         self.ja.ja_log_bucket = None
+        self.jmi = Object()
+        self.jmi.jmi_sandbox_bucket = None
+        self.jmi.jmi_sandbox_storage_service = None
 
         self.parse_session_config_file()
 
@@ -1039,6 +1062,7 @@ class InitialSessionConfig(object):
                                        nimbus_config_file_abspath))
                     cloud_index += 1
 
+        # read Job Agents information
         self.ja.ja_sqs_poll_job_interval = session_config.getfloat(
             'JobAgents',
             'ja_sqs_poll_job_interval')
@@ -1057,6 +1081,14 @@ class InitialSessionConfig(object):
         self.ja.ja_log_bucket = session_config.get(
             'JobAgents',
             'ja_log_bucket')
+
+        # read Job Management Interface Information
+        self.jmi.jmi_sandbox_storage_service = session_config.get(
+            'JMI',
+            'jmi_sandbox_storage_service')
+        self.jmi.jmi_sandbox_bucket = session_config.get(
+            'JMI',
+            'jmi_sandbox_bucket')
 
         self.session_configparser_object = session_config
 
