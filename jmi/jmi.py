@@ -25,6 +25,7 @@ import time
 import sys
 import base64
 import optparse
+import ConfigParser
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
 from components.utils import *
@@ -52,25 +53,12 @@ def main():
     logger.debug("parse commandline arguments..")
     start_options = parseargs()
 
-# logger = logging.getLogger()
-# logger.setLevel(logging.DEBUG)
-# formatter_file = logging.Formatter(
-    # "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
-# sh = logging.StreamHandler()
-# sh.setFormatter(formatter_file)
-# logger.addHandler(sh)
+    jmi = JobManagementInterface(start_options)
+    jmi.act()
 
-# logger_boto = logging.getLogger("boto")
-# logger_boto.propagate = False
-# logger_boto.setLevel(logging.DEBUG)
-# fh_boto = logging.FileHandler("boto.log", encoding="UTF-8")
-# fh_boto.setFormatter(formatter_file)
-# logger_boto.addHandler(fh_boto)
+
 
 # job_id = 'job-01'
-# session_id = '0907210728-testsess-0c7e'
-# aws_accesskey = "1Y3BH9P4AVY4RSW0DEG2"
-# aws_secretkey = "xV/rRGzNpIVHrtweqRT8I5nbXmr9FmVhJARhQx7u"
 # input_sandbox_arc_filename = "input_sandbox_arc_%s.tar.bz2" % job_id
 # output_sandbox_arc_filename = "output_sandbox_arc_%s.tar.bz2" % job_id
 # input_sandbox_archive_key = "%s/jobs/%s" % (session_id,input_sandbox_arc_filename)
@@ -134,6 +122,12 @@ def s3_upload_file(file, bucketname, key):
 
 
 class JobManagementInterface(object):
+    """
+    This class provides an interface to Clobi's job scheduling infrastructure.
+    Basically, it implements submit, remove, kill, monitor and receive ouput.
+    An instance of this class is initialized with specific job information.
+    Hence, **this is the Job Management Interface for a specific job**
+    """
     def __init__(self, options):
         self.logger = logging.getLogger("jmi.py.JobManagementInterface")
         self.logger.debug("initialize JobManagementInterface object")
@@ -141,27 +135,36 @@ class JobManagementInterface(object):
         # constructor arguments
         self.jmi_config_file_path = check_file(options.jmi_config_file_path)
         self.job_config_file_path = check_file(options.job_config_file_path)
+        self.options = options
 
         # parse config files
         self.parse_jmi_config_file()
         self.parse_job_config_file()
 
-        sys.exit()
+    def act(self):
+        """
+        Perform an action on the job as defined in self.options
+        """
+        if self.options.submit:
+            self.submit_job()
+        elif self.options.remove:
+            self.remove_job()
+        elif self.options.kill:
+            self.kill_job()
+        elif self.options.monitor:
+            self.monitor_job()
+        elif self.options.rcv_output_sandbox:
+            self.receive_output_sandbox_of_job()
 
-        if options.submit:
-            bla
-        elif options.remove:
-            bla
-        elif options.kill:
-            bla
-        elif options.monitor:
-            bla
-        elif options.rcv_output_sandbox:
-            bla
+    def generate_job_id(self):
+        pass
+
+    def submit_job(self):
+        pass
 
     def parse_jmi_config_file(self):
         self.logger.debug(("Parse Clobi's Job Management Interface config"
-            " file %s" % self.jmi_config_file_path))
+            " file %s ..." % self.jmi_config_file_path))
         jmi_config = ConfigParser.SafeConfigParser()
         jmi_config.readfp(open(self.jmi_config_file_path))
 
@@ -179,15 +182,16 @@ class JobManagementInterface(object):
             'jmi_sandbox_storage_service')
         self.jmi_session_id = jmi_config.get(
             'JMI_config',
-            'jmi_session_id ')
+            'jmi_session_id')
+        self.logger.debug("success!")
 
     def parse_job_config_file(self):
         self.logger.debug(("Parse Clobi's Job configuration"
-            " file %s" % self.job_config_file_path))
+            " file %s ..." % self.job_config_file_path))
         job_config = ConfigParser.SafeConfigParser()
         job_config.readfp(open(self.job_config_file_path))
 
-        selb.job = Object()
+        self.job = Object()
         self.job.executable = job_config.get(
             'job_config',
             'executable')
@@ -206,8 +210,10 @@ class JobManagementInterface(object):
         self.job.input_sandbox_files = job_config.get(
             'job_config',
             'production_system_job_id')
+        self.logger.debug("success!")
 
     def submit(self):
+        pass
         # generated on submission:
         # job ID
 # output_sandbox_arc_filename = output_sandbox_arc_job-01.tar.bz2
@@ -359,29 +365,34 @@ def parseargs():
     """
     version = '%prog 0'
     description = ("Clobi Job Management Interface reference client")
-    usage = ("All actions require --jmicfg and --jobcfg to be set:\n"
-             "E.g. %prog --kill --jmicfg path/to/jmi.cfg --jobfg path/to/job.cfg\n"
-             "try -h, --help and --version")
+    usage = ("\n%prog --submit --jmicfg path/jmi.cfg --jobfg path/job.cfg\n"
+        "%prog [--kill,--monitor,...] --jmicfg path/jmi.cfg --jobid JobID\n"
+        "try -h, --help and --version")
     parser = optparse.OptionParser(
         usage=usage,
         version=version,
         description=description)
 
     parser.add_option('--jmicfg', dest='jmi_config_file_path',
-        help='path to Job Management Interface configuration file.')
+        help=('path to Job Management Interface configuration file.'
+            ' Always required.'))
     parser.add_option('--jobcfg', dest='job_config_file_path',
-        help='path to Job description/configuration file.')
+        help=('path to Job description/configuration file.'
+            ' Required for Job submission.'))
+    parser.add_option('--jobid', dest='job_id',
+        help=('Job ID (returned after submission). Required for remove/kill/'
+            'monitor/recv-output-sandbox'))
     parser.add_option('--submit', action='store_true', dest='submit',
-        default=False, help='Submit a new job.')
+        default=False, help='Submit a new Job.')
     parser.add_option('--remove', action='store_true', dest='remove',
-        default=False, help='Try to remove a job.')
+        default=False, help='Try to remove a Job.')
     parser.add_option('--kill', action='store_true', dest='kill',
-        default=False, help="Kill a job, even when it's already running.")
+        default=False, help="Kill a Job, even when it's already running.")
     parser.add_option('--monitor', action='store_true', dest='monitor',
-        default=False, help='Get monitoring data for a specific job.')
+        default=False, help='Get monitoring data for a specific Job.')
     parser.add_option('--rcv-output-sandbox', action='store_true',
         dest='rcv_output_sandbox', default=False,
-        help='Receive output sandbox if job is completed.')
+        help='Receive output sandbox if Job is completed.')
 
     # now read in the given arguments (from sys.argv by default)
     (options, args) = parser.parse_args()
@@ -391,10 +402,13 @@ def parseargs():
     +int(options.monitor)+int(options.rcv_output_sandbox)) is not 1:
         parser.error(("Exactly one of [--submit, --monitor, --kill, "
             "--remove, --rcv-output-sandbox] must be set!"))
-    elif options.jmi_config_file_path is None:
-        Parser.error('--jmicfg path/to/jmi.cfg is required!')
-    elif options.job_config_file_path is None:
-        Parser.error('--jobfg path/to/job.cfg is required!')
+    if options.jmi_config_file_path is None:
+        parser.error('--jmicfg path/to/jmi.cfg is always required!')
+    if options.submit:
+        if options.job_config_file_path is None:
+            parser.error('--jobfg path/to/job.cfg is required for submission!')
+    elif options.job_id is None:
+        parser.error('--jobid JobID is required for all except --submit!')
     return options
 
 
