@@ -195,13 +195,13 @@ class SimpleDB(object):
             " called and the second time an exceptional error appeared."))
         return False
 
-    def set_shutdown_triggered(self)
+    def set_shutdown_triggered(self):
         """
         The Job Agent is in shutdown phase. Set this information in SDB.
         """
         try:
             self.logger.info(("VM %s: set 'status' value to"
-                " 'JA_shutdown_triggered""%(self.inicfg.vm_id))
+                " 'JA_shutdown_triggered'"%(self.inicfg.vm_id)))
             temp = {}
             temp['status'] = "JA_shutdown_triggered"
             temp['JA_shutdowntime'] = utc_timestring()
@@ -1014,12 +1014,12 @@ class JobAgent(object):
         self.logger.debug("get number of cores for this VM..")
         nbr_cores = self.get_number_of_cores()
         if nbr_cores:
-            self.nbr_cores = nbr_cores
+            self.inicfg.nbr_cores = nbr_cores
             self.logger.info("number of cores: %s" % nbr_cores)
         else:
             self.logger.error(("number of cores could not be determined. Set "
                 "it to 1."))
-            self.nbr_cores = 1
+            self.inicfg.nbr_cores = 1
 
         # to be populated / changed during runtime
         self.sdb = None
@@ -1151,9 +1151,9 @@ class JobAgent(object):
             # get & start a new job, but only if *BOTH* is fulfilled:
             # 1) currently, there are less jobs processed than nbr_cores
             # 2) the VM softkill flag isn't set
-            if len(self.jobs) < self.nbr_cores:
+            if len(self.jobs) < self.inicfg.nbr_cores:
                 self.logger.debug(("Nbr of jobs (%s) smaller than nbr of"
-                    " cores (%s)" %(len(self.jobs),self.nbr_cores)))
+                    " cores (%s)" %(len(self.jobs),self.inicfg.nbr_cores)))
                 # should the VM be killed after finishing current job(s)?
                 if self.check_vm_softkill_flag():
                     if len(self.jobs) == 0:
