@@ -106,7 +106,10 @@ class JobManagementInterface(object):
             self.job_config_file_path = check_file(options.job_config_file_path)
             self.parse_job_config_file()
             self.submit_job()
-        elif self.options.remove:
+        else:
+            # get Job ID from commandline
+            self.job.id = self.options.job_id
+        if self.options.remove:
             self.remove_job()
         elif self.options.kill:
             self.kill_job()
@@ -128,13 +131,84 @@ class JobManagementInterface(object):
         self.logger.info("generated job ID: %s " % job_id)
         self.job.id = job_id
 
+    def monitor_job(self):
+        """
+        Initialize SDB and receive and return complete Job item
+        """
+        if not self.init_sdb_jobs_domain():
+            self.logger.info("SDB jobs domain initialization error.")
+            return False
+        self.logger.info("SDB jobs domain successfully initialized.")
+        self.logger.debug(("Retrieve item %s from SDB domain %s"
+            % (self.job.id,self.sdb_domainobj_jobs.name)))
+        try:
+            item = self.sdb_domainobj_jobs.get_item(self.job.id)
+        except:
+            self.logger.error("Error while retrieving item.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+            return False
+        if item is not None:
+            self.logger.info("\n\nCONTENT OF ITEM %s:" % item.name)
+            for key in item.keys():
+                self.logger.info("%s: %s" % (key, item[key]))
+            return item
+        else:
+            self.logger.error("Item does not exist.")
+            return False
+
+    def init_sdb_jobs_domain(self):
+        """
+        Perform all necessary steps to get a working boto SDB domain object.
+        If this method is successfull, after run the following attributes are
+        set: `self.sdbconn` and `self.sdb_domainobj_jobs`
+        """
+        sdbconn = self.connect_sdb()
+        if sdbconn:
+            self.sdbconn = sdbconn
+            # hard coded SDB domain name convention for the jobs' domain
+            domainobj = self.lookup_domain("%s_jobs"%self.jmi_session_id)
+            if domainobj:
+                self.sdb_domainobj_jobs = domainobj
+                return True
+        return False
+
+    def connect_sdb(self):
+        """
+        Connect to SDB and return boto connection object (or False).
+        """
+        self.logger.debug("connect to SDB...")
+        try:
+            sdbconn = boto.connect_sdb(
+                self.aws_accesskey,
+                self.aws_secretkey)
+            return sdbconn
+        except:
+            self.logger.error("Error while connecting to SDB.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+        return False
+
+    def lookup_domain(self, domainname):
+        """
+        Look up domain. Return boto SDB domain object or False.
+        """
+        self.logger.debug("look up SDB domain "+domainname+" ...")
+        try:
+            domainobj = self.sdbconn.lookup(domainname)
+        except:
+            self.logger.error("Error while SDB domain lookup.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+            return False
+        if domainobj is None:
+            self.logger.error(("SDB domain does not exist: %s." % domainname))
+            return False
+        self.logger.info("SDB domain %s is now available." % domainname)
+        return domainobj
+
     def receive_output_sandbox_of_job(self):
         """
         Re-generate output sandbox archive location from JMI cfg and job ID.
         Download archive to `self.jmi_sandboxarc_dir`.
         """
-        # get Job ID from commandline
-        self.job.id = self.options.job_id
         # reassemble output sandbox archive location from JMI cfg (session ID,
         # sandbox bucket) and Job ID
         out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
