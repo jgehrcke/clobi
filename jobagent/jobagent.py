@@ -839,7 +839,7 @@ class Job(object):
 
     def build_output_sandbox_arc(self):
         """
-        Start subprocess  tar czf arc.tar.gz --ignore-failed-read x x x' to
+        Start subprocess  tar cjf arc.tar.gz --ignore-failed-read x x x' to
         compress all desired output files into an archive. Additionally,
         put
         - job's logfile

@@ -168,17 +168,14 @@ class JobManagementInterface(object):
             % (repr(jobmsg_zip_str),len(jobmsg_zip_str)))
 
         if self.build_input_sandbox_arc():
-            pass
-            # if self.upload_file(
-            # file=self.in_sandbox_arc_filename,
-            # bucketname=self.sandbox_bucket,
-            # key=in_sandbox_arc_key):
-
-    # read_jobmsg = SQSJobMessage()
-    # read_jobmsg.init_read(jobmsg_zip_str)
-    # print read_jobmsg.get_output_sandbox_files()
-
-    # add_message(1, jobmsg_zip_str)
+            self.logger.info("Input sandbox archive successfully built")
+            if self.upload_file(
+            file=self.in_sandbox_arc_file_path,
+            bucketname=self.sandbox_bucket,
+            key=in_sandbox_arc_key):
+                self.logger.info("Input sandbox archive successfully uploaded.")
+                if self.submit_sqs_message(self.job.priority, jobmsg_zip_str):
+                    self.logger.info("Job message successfully sent to SQS.")
 
     def parse_jmi_config_file(self):
         self.logger.debug(("Parse Clobi's Job Management Interface config"
@@ -237,16 +234,30 @@ class JobManagementInterface(object):
         self.logger.debug("success!")
 
     def submit_sqs_message(self, priority, msg):
-        sqsconn = boto.connect_sqs(aws_accesskey,aws_secretkey)
-        queues = sqsconn.get_all_queues()
+        """
+        Submit a new message to SQS. Choose the queue that corresponds to the
+        given priority.
+        """
+        try:
+            sqsconn = boto.connect_sqs(self.aws_accesskey,self.aws_secretkey)
+            queues = sqsconn.get_all_queues()
+        except:
+            self.logger.error("Error while receiving all available queues.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+            return False
         for q in queues:
-            if q.url.endswith("P%s" % prio):
+            if q.url.endswith("P%s" % priority):
                 # By default, the class boto.sqs.message.Message is used.
                 # This does base64 encoding itself
                 sqs_msg = q.new_message(body=msg)
-                q.write(sqs_msg)
+                try:
+                    q.write(sqs_msg)
+                except:
+                    self.logger.error("Error while writing message.")
+                    self.logger.error("Traceback:\n%s"%traceback.format_exc())
+                    return False
                 return True
-        logger.info("No queue found for priority %s" % prio)
+        logger.info("No queue found for priority %s" % priority)
         return False
 
     def upload_file(self, file, bucketname, key):
@@ -255,8 +266,9 @@ class JobManagementInterface(object):
         S3 is supported; Cumulus follows.
         Return True in case of success
         """
-        self.logger.info("send %s sandbox to %s" % (file,self.storage_service))
-        if self.storage_service == 's3':
+        self.logger.info(("send %s sandbox to %s"
+            % (file,self.sandbox_storage_service)))
+        if self.sandbox_storage_service.lower() == 's3':
             try:
                 conn = boto.connect_s3(self.aws_accesskey,self.aws_secretkey)
                 bucket = conn.lookup(bucket_name=bucketname.lower())
@@ -287,7 +299,7 @@ class JobManagementInterface(object):
             self.job_config_file_path))
 
         # build up tar cmd
-        cmd = ("tar cjf %s --verbose  %s %s"
+        cmd = ("tar cjf %s --verbose %s %s"
             % (self.in_sandbox_arc_file_path, cd, tar_files_list))
         self.logger.info(("run input sandbox compression as subprocess:"
             " %s" % cmd))
