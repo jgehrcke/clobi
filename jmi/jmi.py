@@ -212,6 +212,10 @@ class JobManagementInterface(object):
                         " Wrote ID to %s" % (self.job.id,job_id_file_path)))
 
     def parse_jmi_config_file(self):
+        """
+        Parse Clobi's Job Management Interface configuration file using
+        ConfigParser.
+        """
         self.logger.debug(("Parse Clobi's Job Management Interface config"
             " file %s ..." % self.jmi_config_file_path))
         jmi_config = ConfigParser.SafeConfigParser()
@@ -235,6 +239,10 @@ class JobManagementInterface(object):
         self.logger.debug("success!")
 
     def parse_job_config_file(self):
+        """
+        Parse job configuration file using ConfigParser. If `priority` or
+        `job_owner` are not given, use default values.
+        """
         self.logger.debug(("Parse Clobi's Job configuration"
             " file %s ..." % self.job_config_file_path))
         job_config = ConfigParser.SafeConfigParser()
@@ -342,6 +350,13 @@ class JobManagementInterface(object):
             except:
                 self.logger.critical("Error while downloading.")
                 self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+                self.logger.error(("Download failed. 404 Not Found?"
+                    " -> means that the requested archive wasn't found. Did"
+                    " the job already run? Did it succeed?"))
+                if os.path.exists(outfile):
+                    self.logger.debug(("%s exists and"
+                        " is deleted now." % outfile))
+                    os.remove(outfile)
         else:
             self.logger.error("unkown storage service")
         return False
@@ -389,18 +404,32 @@ class JobManagementInterface(object):
         return True
 
     def gen_in_sandbox_arc_filename(self):
+        """
+        Generate input sandbox archive filename from Job ID
+        """
         return "in_sndbx_%s.tar.bz2" % self.job.id
 
     def gen_out_sandbox_arc_filename(self,):
+        """
+        Generate output sandbox archive filename from Job ID
+        """
         return "out_sndbx_%s.tar.bz2" % self.job.id
 
     def gen_in_sandbox_archive_key(self):
+        """
+        Generate input sandbox archive key for the storage service. Build the
+        key from the input sandbox archive filename.
+        """
         return os.path.join(
             self.jmi_session_id,
             "jobs",
             self.gen_in_sandbox_arc_filename())
 
     def gen_out_sandbox_archive_key(self):
+        """
+        Generate output sandbox archive key for the storage service. Build the
+        key from the output sandbox archive filename.
+        """
         return os.path.join(
             self.jmi_session_id,
             "jobs",
