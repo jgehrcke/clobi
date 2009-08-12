@@ -97,13 +97,13 @@ class JobManagementInterface(object):
         # to be populated
         self.job = Object()
 
-
     def act(self):
         """
         Perform an action on the job as defined in self.options
         """
         if self.options.submit:
-            self.job_config_file_path = check_file(options.job_config_file_path)
+            self.job_config_file_path = check_file(
+                self.options.job_config_file_path)
             self.parse_job_config_file()
             self.submit_job()
         else:
@@ -130,6 +130,56 @@ class JobManagementInterface(object):
         job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
         self.logger.info("generated job ID: %s " % job_id)
         self.job.id = job_id
+
+    def remove_job(self):
+        """
+        Init SDB and try to mark job as removed. If the job item is alredy
+        existing in the SDB jobs domain, then a Job Agent is already working on
+        the job and it cannot be removed anymore.
+        """
+        if not self.init_sdb_jobs_domain():
+            self.logger.info("SDB jobs domain initialization error.")
+            return False
+        self.logger.info(("Try to remove job with item %s in domain %s..."
+            % (self.job.id,self.sdb_domainobj_jobs.name)))
+        try:
+            item = self.sdb_domainobj_jobs.get_item(self.job.id)
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        if item is not None:
+            if 'kill_flag' in item and item['kill_flag'] == '1':
+                self.logger.error(("Job %s is already marked to be killed."
+                    % self.job.id))
+            if 'status' in item:
+                if item['status'] == 'removed':
+                    self.logger.error(("Job %s is already marked to be removed."
+                        % self.job.id))
+                elif (item['status'] == 'initialized' or
+                item['status'] == 'running'):
+                    self.logger.error(("Job %s is already initialized/running."
+                        " You can set the kill flag if you like."%self.job.id))
+                elif (item['status'] == 'save_output' or
+                item['status'].startswith('completed') or
+                item['status'] == 'run_error'):
+                    self.logger.error(("Job %s is already completed or near"
+                        " completion." % self.job.id))
+            return False
+        try:
+            self.logger.info(("Item %s did not exist (no Job Agent working on"
+                " this job). Create item and set 'status' to 'removed'..."
+                % self.job.id))
+            item = self.sdb_domainobj_jobs.new_item(self.job.id)
+            item['status'] = 'removed'
+            item['removedtime'] = utc_timestring()
+            item.save()
+            self.logger.info("job marked to be removed.")
+            return True
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
     def monitor_job(self):
         """

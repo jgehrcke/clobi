@@ -367,7 +367,7 @@ class SimpleDB(object):
 
         # now edit VM item in SESSION SDB domain to modify the number
         # of jobs initialized by this JobAgent / VM. If this does not succeed,
-        # do not return False because it's not crucial
+        # do not return False because it's not a crucial step.
         try:
             self.logger.info(("VM %s: set 'nbr_jobs_initialized' value to %s"
                 % (self.inicfg.vm_id, job_machine_index)))
@@ -377,8 +377,8 @@ class SimpleDB(object):
                 item_name=self.inicfg.vm_id,
                 attributes=temp)
         except:
+            self.logger.error("nbr of initialized jobs could not be adjusted")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
-
         return 'success'
 
 
