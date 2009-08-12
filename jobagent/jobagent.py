@@ -965,7 +965,10 @@ class Job(object):
             try:
                 # new in Python 2.6
                 self.subprocess.kill()
-                self.sdb.update_job_state(self.job_id, 'killed')
+                # setting status to killed is not a very good idea, because this
+                # lasts only for very short time, since "save_output" instantly
+                # follows.
+                # self.sdb.update_job_state(self.job_id, 'killed')
                 return True
             except:
                 self.logger.critical("Error while killing subprocess")
