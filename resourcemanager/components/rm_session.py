@@ -54,7 +54,8 @@ class SQSSession(object):
         self.logger.debug("initialize SQSSession object")
 
         self.inicfg = initial_session_config
-        self.default_visibility_timeout = self.inicfg.sqs.default_visibility_timeout
+        self.default_visibility_timeout = (
+            self.inicfg.sqs.default_visibility_timeout)
         self.save_dir = session_save_dir
         self.save_config_file_path = os.path.join(self.save_dir,
             "save.session.sqs.config")
@@ -210,7 +211,8 @@ class SimpleDBSession(object):
         self.logger.debug("initialize SimpleDBSession object")
 
         self.inicfg = initial_session_config
-        self.initial_highest_priority = initial_session_config.sqs.initial_highest_priority
+        self.initial_highest_priority = (
+            initial_session_config.sqs.initial_highest_priority)
         self.save_dir = session_save_dir
         self.save_config_file_path = os.path.join(self.save_dir,
             "save.session.sdb.config")
@@ -252,7 +254,8 @@ class SimpleDBSession(object):
         session needs.
         """
         self.logger.info("create SDB domain for session & VM data...")
-        self.boto_domainobj_session = self.create_domain(self.domain_name_session)
+        self.boto_domainobj_session = self.create_domain(
+            self.domain_name_session)
         self.logger.info("create SDB domain for job data...")
         self.boto_domainobj_jobs = self.create_domain(self.domain_name_jobs)
 
@@ -652,7 +655,7 @@ class Session(object):
                             return False
                         return vm_info
                     else:
-                        self.logger.error(("get_vm_info_from_file(): There must "
+                        self.logger.error(("get_vm_info_from_file(): There must"
                             " be at least 3 data fields. Found %s" % len(data)))
                         return False
             self.logger.error(("get_vm_info_from_file():couldn't find VM ID %s"
@@ -691,7 +694,7 @@ class Session(object):
                 found = True
                 words = line.rstrip().split(";")
                 if len(words) < 3:
-                    self.logger.error(("Line %d ('%s') in %s has less than three"
+                    self.logger.error(("Line %d (%s) in %s has less than three"
                         " data fields" % (fileinput.filelineno(), line,
                         self.save_vms_file_path)))
                 else:
@@ -722,12 +725,13 @@ class Session(object):
                             self.save_last_vm_id_file_path))
         backup_file(self.save_last_vm_id_file_path, self.save_backup_dir, 50)
         try:
-            last_vm_id_number = int(open(self.save_last_vm_id_file_path,'r').read())
+            last_vm_id_number = int(
+                open(self.save_last_vm_id_file_path,'r').read())
             self.logger.debug("read last VM ID: %s" % last_vm_id_number)
         except IOError:
             if self.resume:
-                self.logger.critical(("session in resume mode and IOError on last"
-                                      " VM ID file. Smells bad; exit!"))
+                self.logger.critical(("session in resume mode and IOError on "
+                    "last VM ID file. Smells bad; exit!"))
                 sys.exit(1)
             else:
                 self.logger.debug("could not be opened. Start at 0")
@@ -739,14 +743,14 @@ class Session(object):
             vm_id_list.append("vm-"+unicode(last_vm_id_number).zfill(4))
 
         self.logger.debug(("write last VM ID number (%s) to file %s"%
-                           (last_vm_id_number,self.save_last_vm_id_file_path)))
+            (last_vm_id_number,self.save_last_vm_id_file_path)))
         try:
             fd = open(self.save_last_vm_id_file_path,'w') # (over-)write mode
             fd.write(str(last_vm_id_number))
             fd.close()
         except IOError:
             self.logger.critical(("last VM ID number (%s) could not be saved: "
-                                  "IOError. Exit!" % last_vm_id_number))
+                "IOError. Exit!" % last_vm_id_number))
             sys.exit(1)
         return vm_id_list
 
@@ -826,7 +830,7 @@ class Session(object):
         self.sdb_session = SimpleDBSession(self.inicfg,self.save_dir)
         self.sqs_session = SQSSession(self.inicfg,self.save_dir)
         if self.inicfg.resume_session:
-            self.logger.info("resumed session: load missing config from files...")
+            self.logger.info("resume session: load missing config from files..")
             self.load_extended_config_from_file()
             self.set_up_simple_db_from_file()
             self.set_up_sqs_from_file()
@@ -848,9 +852,9 @@ class Session(object):
         Generate session ID from current time, session name (short description)
         and random string -> Should be unique  ;-)
         """
-        sfx = hashlib.sha1(str(random.random())+str(time.time())).hexdigest()[:4]
+        s = hashlib.sha1(str(random.random())+str(time.time())).hexdigest()[:4]
         #self.session_id = (time.strftime("%y%m%d%H%M",time.localtime())
-         #                  + "-" + self.inicfg.session.name[:8] + "-" + sfx)
+         #                  + "-" + self.inicfg.session.name[:8] + "-" + s)
         self.session_id = "0907210728-testsess-0c7e"
         self.logger.info("generated session ID: "+self.session_id+ " .")
 
@@ -865,7 +869,7 @@ class Session(object):
         self.sdb_session.generate_domain_names()
         self.logger.info("create SDB domains...")
         self.sdb_session.create_domains()
-        self.logger.info("set session properties in SDB (highest priority, ...)")
+        self.logger.info("set session properties in SDB (highest priority,...)")
         self.sdb_session.create_session_props_item()
 
     def set_up_simple_db_from_file(self):
@@ -940,7 +944,8 @@ class InitialSessionConfig(object):
         # constructor arguments
         self.logger.debug("check session config file")
         self.session_config_file_abspath = check_file(session_config_file_path)
-        self.session_directory = os.path.dirname(self.session_config_file_abspath)
+        self.session_directory = os.path.dirname(
+            self.session_config_file_abspath)
         self.save_dir = os.path.join(self.session_directory,"save")
         self.resume_session = resume_session
 
@@ -992,11 +997,16 @@ class InitialSessionConfig(object):
         + "\n* ec2.instancetype: " + self.ec2.instancetype
         + "\n* ec2.ami_id: " + self.ec2.ami_id
         + "\n* ec2.max_instances: " + unicode(self.ec2.max_instances)
-        + "\n* ec2.instance_state_pollinterval: " + unicode(self.ec2.instance_state_pollinterval)
-        + "\n* sdb.monitor_vms_pollinterval: " + unicode(self.sdb.monitor_vms_pollinterval)
-        + "\n* sqs.monitor_queues_pollinterval: " + unicode(self.sqs.monitor_queues_pollinterval)
-        + "\n* sqs.initial_highest_priority: " + unicode(self.sqs.initial_highest_priority)
-        + "\n* sqs.default_visibility_timeout: "+ unicode(self.sqs.default_visibility_timeout)
+        + "\n* ec2.instance_state_pollinterval: " + unicode(
+            self.ec2.instance_state_pollinterval)
+        + "\n* sdb.monitor_vms_pollinterval: " + unicode(
+            self.sdb.monitor_vms_pollinterval)
+        + "\n* sqs.monitor_queues_pollinterval: " + unicode(
+            self.sqs.monitor_queues_pollinterval)
+        + "\n* sqs.initial_highest_priority: " + unicode(
+            self.sqs.initial_highest_priority)
+        + "\n* sqs.default_visibility_timeout: "+ unicode(
+            self.sqs.default_visibility_timeout)
         + "\n"
         )
 
@@ -1008,7 +1018,8 @@ class InitialSessionConfig(object):
         session_config = ConfigParser.SafeConfigParser()
         session_config.readfp(open(self.session_config_file_abspath))
 
-        self.session.name = session_config.get('session', 'name').decode('UTF-8')
+        self.session.name = session_config.get(
+            'session', 'name').decode('UTF-8')
         self.aws.secretkey = session_config.get('AWS', 'aws_secret_key')
         self.aws.accesskey = session_config.get('AWS', 'aws_access_key')
 
@@ -1048,7 +1059,7 @@ class InitialSessionConfig(object):
             if len(nimbuscloudoptions) > 0:
                 self.logger.debug("populated [Nimbus] section found")
                 self.nimbus.use = True
-                # these option names are of the type 'nimbus_cloud_N' -> sort it.
+                # these option names are of type 'nimbus_cloud_N' -> sort it.
                 nimbuscloudoptions.sort()
                 # dict will contain cloud index as key, config file as value
                 self.nimbus.sorted_configfile_dict = {}
@@ -1142,7 +1153,8 @@ class InitialNimbusCloudConfig(object):
         """
         Parse config file, set variables for this nimbus cloud
         """
-        self.logger.debug("parse Nimbus cloud config file with SafeConfigParser")
+        self.logger.debug(("parse Nimbus cloud config file with"
+            " SafeConfigParser"))
         nimbus_config = ConfigParser.SafeConfigParser()
         nimbus_config.readfp(open(self.nimbus_config_file_abspath))
 
@@ -1369,14 +1381,14 @@ class NimbusCloud(object):
         cloudclient_run_order['workdir'] = workdir
 
         cloudclient_run_order['clclwrapper'] = NimbusClientWrapper(
-                        exe=os.path.join(
-                            self.inicfg.nimbus_cloud_client_root,
-                            "lib/workspace.sh"),
-                        workdir=workdir,
-                        gridproxyfile=self.grid_proxy_file_path,
-                        action="rpquery",
-                        run_id=run_id,
-                        eprfile=eprfile_path)
+            exe=os.path.join(
+                self.inicfg.nimbus_cloud_client_root,
+                "lib/workspace.sh"),
+            workdir=workdir,
+            gridproxyfile=self.grid_proxy_file_path,
+            action="rpquery",
+            run_id=run_id,
+            eprfile=eprfile_path)
 
         if cloudclient_run_order['clclwrapper'].run():
             self.cloudclient_run_orders.append(cloudclient_run_order)
@@ -1492,8 +1504,8 @@ class NimbusCloud(object):
 
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):
-            self.logger.debug(("delete cloudclient_run_order object with run id %s"
-                % self.cloudclient_run_orders[idx]['run_id']))
+            self.logger.debug(("delete cloudclient_run_order object with run"
+                " id %s" % self.cloudclient_run_orders[idx]['run_id']))
             del self.cloudclient_run_orders[idx]
 
     def generate_clclwrapper_run_id(self, vm_id):
@@ -1522,8 +1534,8 @@ class NimbusCloud(object):
         Check if Nimbus cloud client exists at given root directory: check
         two important files. check_file() invokes sys.exit() if file isn't found
         """
-        self.logger.debug("check if cloud client for Nimbus cloud %s exists under %s"
-            % (self.cloud_index, self.inicfg.nimbus_cloud_client_root))
+        self.logger.debug("check if cloud client for Nimbus cloud %s exists "
+            "under %s"%(self.cloud_index, self.inicfg.nimbus_cloud_client_root))
         check_file(os.path.join(
             self.inicfg.nimbus_cloud_client_root,
             "lib/workspace.sh"))
@@ -1567,10 +1579,12 @@ class NimbusCloud(object):
                 self.inicfg.privkey_file_path,
                 grid_proxy_file_path,
                 self.inicfg.grid_proxy_hours))
-        self.logger.debug("invoke 'echo PWD | %s as subprocess" % gpi_shellcommand)
+        self.logger.debug("invoke 'echo PWD | %s as subprocess"
+            % gpi_shellcommand)
 
         # add password (stdin via echo) and execute command as subprocess
-        gpi_shellcommand_pw = "echo %s | %s" % (gp_priv_key_pwd, gpi_shellcommand)
+        gpi_shellcommand_pw = "echo %s | %s" % (gp_priv_key_pwd,
+            gpi_shellcommand)
         gpi_sp = subprocess.Popen(
             args=gpi_shellcommand_pw,
             stdout=gpi_stdouterr_file,
@@ -1628,7 +1642,6 @@ class EC2(object):
                 - send request, save reservation object in ec2_run_order dict
                 - update  sessions VM save file with "run_ordered" and res ID
         """
-
         # grab VM IDs and add data to save.session.vms
         self.logger.debug("request %s VM ID(s)" % number)
         vm_ids=self.session.generate_vm_ids(number)
@@ -1694,7 +1707,8 @@ class EC2(object):
                         new_state = 'started'
                         self.session.sdb_session.register_vm_started(
                             clclrunorder['vm_id'])
-                    if inststate == 'terminated' or inststate == 'shutting-down':
+                    if (inststate == 'terminated' or
+                    inststate == 'shutting-down'):
                         new_state = 'error'
                     self.session.update_save_vms_file_entry(
                         vm_id=ec2_run_order['vm_id'],
@@ -1720,7 +1734,9 @@ class ResourceManagerLogger(object):
         # create log filenames (with prefix from time)
         log_filename_prefix = timestring()
         rm_log_file_path = os.path.join(logdir,log_filename_prefix+"_RM.log")
-        boto_log_file_path = os.path.join(logdir,log_filename_prefix+"_boto.log")
+        boto_log_file_path = os.path.join(
+            logdir,
+            log_filename_prefix+"_boto.log")
 
         # set up main/root logger
         self.logger = logging.getLogger()
@@ -1742,8 +1758,8 @@ class ResourceManagerLogger(object):
 
         # pipe handler to GUI
         # about encoding:
-        # http://mail.python.org/pipermail/python-bugs-list/2004-March/022258.html
-        # -> "Notice that UTF-8 is only used if a UnicodeError is detected.
+        # http://mail.python.org/pipermail/python-bugs-list/2004-March/022258.
+        # html -> "Notice that UTF-8 is only used if a UnicodeError is detected.
         # By default, "%s\n" % msg is written to the stream using the
         # stream's write(). If the stream can handle this without raising
         # a UnicodeError, then UTF-8 will not be used."
