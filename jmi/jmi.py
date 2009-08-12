@@ -121,12 +121,13 @@ class JobManagementInterface(object):
 
     def kill_job(self):
         """
-        Init SDB and mark job with the kill flag. This simply sets the kill flag
-        without checking job's state. If the job is not initialized by a Job
-        Agent, the kill flag has the same effect as the 'removed' status: The
-        job will be rejected and the SQS msg is deleted by the Job Agent. If the
-        job is already initialized, the Job Agent will periodically check the
-        kill flag and -- in case it is set -- kill the job.
+        Init SDB and mark job with the kill flag. This simply sets the kill 
+        flag without checking job's state. If the job is not initialized by a 
+        Job Agent, the kill flag has the same effect as the 'removal_instructed' 
+        status: The job will be rejected and the SQS msg is deleted by the Job 
+        Agent. If the job is already initialized, the Job Agent will 
+        periodically check the kill flag and -- in case it is set -- kill the 
+        job. 
         """
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
@@ -146,9 +147,9 @@ class JobManagementInterface(object):
 
     def remove_job(self):
         """
-        Init SDB and try to mark job as removed. If the job item is alredy
-        existing in the SDB jobs domain, then a Job Agent is already working on
-        the job and it cannot be removed anymore.
+        Init SDB and try to mark job as removal_instructed. If the job item is 
+        alredy existing in the SDB jobs domain, then a Job Agent is already 
+        working on the job and it cannot be removal_instructed anymore. 
         """
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
@@ -166,7 +167,7 @@ class JobManagementInterface(object):
                 self.logger.error(("Job %s is already marked to be killed."
                     % self.job.id))
             if 'status' in item:
-                if item['status'] == 'removed':
+                if item['status'] == 'removal_instructed':
                     self.logger.error(("Job %s is already marked to be removed."
                         % self.job.id))
                 elif (item['status'] == 'initialized' or
@@ -181,11 +182,11 @@ class JobManagementInterface(object):
             return False
         try:
             self.logger.info(("Item %s did not exist (no Job Agent working on"
-                " this job). Create item and set 'status' to 'removed'..."
-                % self.job.id))
+                " this job). Create item and set 'status' to "
+                "'removal_instructed'..." % self.job.id))
             item = self.sdb_domainobj_jobs.new_item(self.job.id)
-            item['status'] = 'removed'
-            item['removedtime'] = utc_timestring()
+            item['status'] = 'removal_instructed'
+            item['removalinstrtime'] = utc_timestring()
             item.save()
             self.logger.info("job marked to be removed.")
             return True
@@ -358,12 +359,12 @@ class JobManagementInterface(object):
         self.job.input_sandbox_files = job_config.get(
             'job_config',
             'input_sandbox_files')
-        try:    
+        try:
             self.job.production_system_job_id = job_config.get(
                 'job_config',
                 'production_system_job_id')
         except:
-            self.job.production_system_job_id = 'none'            
+            self.job.production_system_job_id = 'none'
         try:
             self.job.priority = job_config.getint(
                 'job_config',

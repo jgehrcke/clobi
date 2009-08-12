@@ -302,6 +302,22 @@ class SimpleDB(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
+    def set_sqs_msg_deletion_time(self, job_id):
+        """
+        Update job item in sdb: write sqs_msg_deletiontime as NOW
+        """
+        try:
+            timestr = utc_timestring()
+            self.logger.info(("Job %s: set 'sqs_msg_deletiontime' value to %s"
+                % (job_id, timestr)))
+            item = self.boto_domainobj_jobs.put_attributes(
+                item_name=job_id,
+                attributes=dict(sqs_msg_deletiontime=timestr))
+            return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
     def initialize_job(self, job_id, sqs_msg_id, job_machine_index):
         """
         Update SDB that we've received a job. The expected case is that an item
@@ -327,14 +343,15 @@ class SimpleDB(object):
                 self.logger.info(("Job %s is already marked to be killed"
                     % job_id))
                 return 'job_killed'
-            if 'status' in item and item['status'] == 'removed':
-                # the job is marked as "removed" in SDB
+            if 'status' in item and item['status'] == 'removal_instructed':
+                # the job is marked as "removal_instructed" in SDB
                 # (there is no way to delete an SQS message once
                 # sent, it has to be received and then deleted via
                 # receipt handle. Hence, to delete a job, it must
-                # be marked as removed in SDB, which was checked here.
-                # The outer fct will delete the SQS msg.)
-                self.logger.info("Job %s is marked as removed in SDB."%job_id)
+                # be marked as 'removal_instructed' in SDB, which was checked 
+                # here. The outer fct will delete the SQS msg.)
+                self.logger.info(("Job %s is marked as 'removal_instructed'"
+                    " in SDB." % job_id))
                 return 'job_removed'
             if ('status' in item and
             (item['status'] == 'initialized' or item['status'] == 'running')):
@@ -354,11 +371,11 @@ class SimpleDB(object):
                 return False
         try:
             self.logger.info(("Item %s did not exist (as expected). Create"
-                " it: set status/inittime/sqs_message_id" % job_id))
+                " it: set status/inittime/sqs_msg_id" % job_id))
             item = self.boto_domainobj_jobs.new_item(job_id)
             item['status'] = 'initialized'
             item['inittime'] = utc_timestring()
-            item['sqs_message_id'] = sqs_msg_id
+            item['sqs_msg_id'] = sqs_msg_id
             item.save()
         except:
             self.logger.critical("SDB error")
@@ -730,6 +747,7 @@ class Job(object):
             # can't.
         elif initreturn == 'job_removed' or initreturn == 'job_killed':
             self.logger.error("marked as killed/removed; now delete SQS msg")
+            self.sdb.update_job_state(self.job_id, 'removed')
             # here, it is clear that it makes sense to delete the SQS msg :-)
         else:
             self.logger.error("Initialization problem. Job processing aborted.")
@@ -749,6 +767,7 @@ class Job(object):
             foo = self.boto_sqsmsg.delete()
             if foo:
                 self.logger.debug("deletion successfull")
+                self.sdb.set_sqs_msg_deletion_time(self.job_id)
             else:
                 self.logger.debug("boto_sqsmsg.delete() returned %s" % foo)
         except:
