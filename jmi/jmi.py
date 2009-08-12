@@ -45,11 +45,14 @@ def main():
     if not os.path.exists(jmi_log_dir):
         os.makedirs(jmi_log_dir)
 
+    # here, the input and output sandbox archives of the jobs will be stored
     jmi_sandboxarc_dir = "jmi_sandboxarc_dir"
     jmi_sandboxarc_dir = os.path.abspath(jmi_sandboxarc_dir)
     if not os.path.exists(jmi_sandboxarc_dir):
         os.makedirs(jmi_sandboxarc_dir)
 
+    # here, a file will be written for each successfully submitted job. the file
+    # has the job ID in its name and contains it.
     jmi_jobid_dir = "jmi_jobid_dir"
     jmi_jobid_dir = os.path.abspath(jmi_jobid_dir)
     if not os.path.exists(jmi_jobid_dir):
@@ -86,18 +89,22 @@ class JobManagementInterface(object):
         self.jmi_sandboxarc_dir = check_dir(jmi_sandboxarc_dir)
         self.jmi_jobid_dir = check_dir(jmi_jobid_dir)
         self.jmi_config_file_path = check_file(options.jmi_config_file_path)
-        self.job_config_file_path = check_file(options.job_config_file_path)
         self.options = options
 
-        # parse config files
+        # parse JMI config file
         self.parse_jmi_config_file()
-        self.parse_job_config_file()
+
+        # to be populated
+        self.job = Object()
+
 
     def act(self):
         """
         Perform an action on the job as defined in self.options
         """
         if self.options.submit:
+            self.job_config_file_path = check_file(options.job_config_file_path)
+            self.parse_job_config_file()
             self.submit_job()
         elif self.options.remove:
             self.remove_job()
@@ -120,6 +127,25 @@ class JobManagementInterface(object):
         job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
         self.logger.info("generated job ID: %s " % job_id)
         self.job.id = job_id
+
+    def receive_output_sandbox_of_job(self):
+        """
+        Re-generate output sandbox archive location from JMI cfg and job ID.
+        Download archive to `self.jmi_sandboxarc_dir`.
+        """
+        # get Job ID from commandline
+        self.job.id = self.options.job_id
+        # reassemble output sandbox archive location from JMI cfg (session ID,
+        # sandbox bucket) and Job ID
+        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
+        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
+        self.out_sandbox_arc_file_path = os.path.join(
+            self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
+        if self.download_file(
+        outfile=self.out_sandbox_arc_file_path,
+        bucketname=self.sandbox_bucket,
+        key=out_sandbox_arc_key):
+            self.logger.info("Download of output sandbox archive successfull.")
 
     def submit_job(self):
         """
@@ -176,6 +202,14 @@ class JobManagementInterface(object):
                 self.logger.info("Input sandbox archive successfully uploaded.")
                 if self.submit_sqs_message(self.job.priority, jobmsg_zip_str):
                     self.logger.info("Job message successfully sent to SQS.")
+                    job_id_file_path = os.path.join(
+                        self.jmi_jobid_dir,
+                        self.job.id+".id")
+                    fd = open(job_id_file_path,'w')
+                    fd.write(self.job.id)
+                    fd.close()
+                    self.logger.info(("Job with ID %s successfully submitted."
+                        " Wrote ID to %s" % (self.job.id,job_id_file_path)))
 
     def parse_jmi_config_file(self):
         self.logger.debug(("Parse Clobi's Job Management Interface config"
@@ -206,7 +240,6 @@ class JobManagementInterface(object):
         job_config = ConfigParser.SafeConfigParser()
         job_config.readfp(open(self.job_config_file_path))
 
-        self.job = Object()
         self.job.executable = job_config.get(
             'job_config',
             'executable')
@@ -262,11 +295,11 @@ class JobManagementInterface(object):
 
     def upload_file(self, file, bucketname, key):
         """
-        Upload file to self.sandbox_storage_service. Currently, only
+        Upload file to `self.sandbox_storage_service`. Currently, only
         S3 is supported; Cumulus follows.
         Return True in case of success
         """
-        self.logger.info(("send %s sandbox to %s"
+        self.logger.info(("send %s to %s"
             % (file,self.sandbox_storage_service)))
         if self.sandbox_storage_service.lower() == 's3':
             try:
@@ -280,6 +313,34 @@ class JobManagementInterface(object):
                 return True
             except:
                 self.logger.critical("Error while uploading.")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("unkown storage service")
+        return False
+
+    def download_file(self, outfile, bucketname, key):
+        """
+        Download key from `self.sandbox_storage_service`. Currently, only
+        S3 is supported; Cumulus follows.
+        Return True in case of success.
+        """
+        if os.path.exists(outfile):
+            self.logger.error("outfile %s already exists." % outfile)
+            return False
+        self.logger.info(("download %s/%s from %s"
+            % (bucketname,key,self.sandbox_storage_service)))
+        if self.sandbox_storage_service.lower() == 's3':
+            try:
+                conn = boto.connect_s3(self.aws_accesskey,self.aws_secretkey)
+                bucket = conn.lookup(bucket_name=bucketname.lower())
+                k = boto.s3.key.Key(bucket)
+                k.key = key
+                self.logger.info(("store key %s as file %s from bucket %s"
+                    % (k.key, file, bucket.name)))
+                k.get_contents_to_filename(outfile)
+                return True
+            except:
+                self.logger.critical("Error while downloading.")
                 self.logger.critical("Traceback:\n%s"%traceback.format_exc())
         else:
             self.logger.error("unkown storage service")
