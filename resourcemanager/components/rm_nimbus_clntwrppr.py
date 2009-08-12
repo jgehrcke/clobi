@@ -59,16 +59,16 @@ class NimbusClientWrapper(object):
         self.starttime = None
         self.endtime = None
 
-        # misconfigured
-        # http://www.abc.net.au/newsradio/txt/s1908113.htm
-        # "I too failed to find “misconfigured” in any of the online dictionaries
-        # – including the giants: Oxford and Webster’s. It’s also not in most
-        # computer spell-checkers. But it’s clearly a real word in common use
-        # since Google can find countless websites dealing with “misconfigured”
-        # software. This is just a case of the dictionaries having not yet caught
-        # up with the real world – but they will. By the way, one colleague
-        # insists that “misconfigured” is a new movie starring Sandra Bullock."
-        # :-)
+        # misconfigured http://www.abc.net.au/newsradio/txt/s1908113.htm "I
+        # too failed to find “misconfigured” in any of the online
+        # dictionaries – including the giants: Oxford and Webster’s. It’s
+        # also not in most computer spell-checkers. But it’s clearly a real
+        # word in common use since Google can find countless websites dealing
+        # with “misconfigured” software. This is just a case of the
+        # dictionaries having not yet caught up with the real world – but
+        # they will. By the way, one colleague insists that “misconfigured”
+        # is a new movie starring Sandra Bullock." :-)
+
         self.misconfigured = False
 
         # check working dir
