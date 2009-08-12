@@ -313,13 +313,38 @@ class SimpleDBSession(object):
         return domainobj
 
     def register_vm_started(self, vm_id):
+        """
+        Register a specific VM as started in SDB. Therefore, create a
+        corresponding item in the session SDB domain and fill it up with some
+        initial values.
+        """
         item = self.boto_domainobj_session.new_item(vm_id)
         timestr = utc_timestring()
         self.logger.info(("creating SDB item %s with 'status=RM_started' and"
             " 'RM_startuptime=%s'" % (vm_id, timestr)))
         item['status'] = 'RM_started'
         item['RM_startuptime'] = timestr
-        item.save()
+        try:
+            item.save()
+        except:
+            self.logger.error(("Error while creating item %s in SDB domain %s"
+                % (vm_id, self.boto_domainobj_session.name)))
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
+    def set_vm_softkill_flag(self, vm_id):
+        """
+        Set the 'VM_softkill_flag' attribute to '1' in a specifig VM item in SDB
+        """
+        self.logger.info("VM %s: set 'VM_softkill_flag' to '1'"% vm_id)
+        try:
+            item = self.boto_domainobj_session.put_attributes(
+                item_name=vm_id,
+                attributes=dict(VM_softkill_flag='1'))
+            return True
+        except:
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
     def count_jobagents(self):
         """
