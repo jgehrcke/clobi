@@ -1195,7 +1195,7 @@ class JobAgent(object):
             self.check_and_manage_running_jobs()
 
             # sleep for a while, before starting the next turn..
-            time.sleep(6)
+            time.sleep(10)
 
     def compress_upload_log(self):
         """

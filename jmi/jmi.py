@@ -358,9 +358,12 @@ class JobManagementInterface(object):
         self.job.input_sandbox_files = job_config.get(
             'job_config',
             'input_sandbox_files')
-        self.job.production_system_job_id = job_config.get(
-            'job_config',
-            'production_system_job_id')
+        try:    
+            self.job.production_system_job_id = job_config.get(
+                'job_config',
+                'production_system_job_id')
+        except:
+            self.job.production_system_job_id = 'none'            
         try:
             self.job.priority = job_config.getint(
                 'job_config',
