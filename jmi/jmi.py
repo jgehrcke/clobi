@@ -118,18 +118,30 @@ class JobManagementInterface(object):
         elif self.options.rcv_output_sandbox:
             self.receive_output_sandbox_of_job()
 
-    def generate_job_id(self):
+    def kill_job(self):
         """
-        Generate job ID from current time, job owner name and random string
-        -> Should be unique  ;-)
+        Init SDB and mark job with the kill flag. This simply sets the kill flag
+        without checking job's state. If the job is not initialized by a Job
+        Agent, the kill flag has the same effect as the 'removed' status: The
+        job will be rejected and the SQS msg is deleted by the Job Agent. If the
+        job is already initialized, the Job Agent will periodically check the
+        kill flag and -- in case it is set -- kill the job.
         """
-        timestr = time.strftime("%y%m%d%H%M%S",time.gmtime())
-        ownerhash = hashlib.sha1(self.job.owner).hexdigest()[:4]
-        rndstring = "%s%s%s" % (timestr, random.random(), self.job.owner)
-        rndhash = hashlib.sha1(rndstring).hexdigest()[:4]
-        job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
-        self.logger.info("generated job ID: %s " % job_id)
-        self.job.id = job_id
+        if not self.init_sdb_jobs_domain():
+            self.logger.info("SDB jobs domain initialization error.")
+            return False
+        self.logger.info(("Mark job item %s in domain %s with kill flag."
+            % (self.job.id,self.sdb_domainobj_jobs.name)))
+        try:
+            item = self.sdb_domainobj_jobs.put_attributes(
+                item_name=self.job.id,
+                attributes=dict(kill_flag='1'))
+            self.logger.info("kill flag set.")
+            return True
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
     def remove_job(self):
         """
@@ -205,71 +217,6 @@ class JobManagementInterface(object):
         else:
             self.logger.error("Item does not exist.")
             return False
-
-    def init_sdb_jobs_domain(self):
-        """
-        Perform all necessary steps to get a working boto SDB domain object.
-        If this method is successfull, after run the following attributes are
-        set: `self.sdbconn` and `self.sdb_domainobj_jobs`
-        """
-        sdbconn = self.connect_sdb()
-        if sdbconn:
-            self.sdbconn = sdbconn
-            # hard coded SDB domain name convention for the jobs' domain
-            domainobj = self.lookup_domain("%s_jobs"%self.jmi_session_id)
-            if domainobj:
-                self.sdb_domainobj_jobs = domainobj
-                return True
-        return False
-
-    def connect_sdb(self):
-        """
-        Connect to SDB and return boto connection object (or False).
-        """
-        self.logger.debug("connect to SDB...")
-        try:
-            sdbconn = boto.connect_sdb(
-                self.aws_accesskey,
-                self.aws_secretkey)
-            return sdbconn
-        except:
-            self.logger.error("Error while connecting to SDB.")
-            self.logger.error("Traceback:\n%s"%traceback.format_exc())
-        return False
-
-    def lookup_domain(self, domainname):
-        """
-        Look up domain. Return boto SDB domain object or False.
-        """
-        self.logger.debug("look up SDB domain "+domainname+" ...")
-        try:
-            domainobj = self.sdbconn.lookup(domainname)
-        except:
-            self.logger.error("Error while SDB domain lookup.")
-            self.logger.error("Traceback:\n%s"%traceback.format_exc())
-            return False
-        if domainobj is None:
-            self.logger.error(("SDB domain does not exist: %s." % domainname))
-            return False
-        self.logger.info("SDB domain %s is now available." % domainname)
-        return domainobj
-
-    def receive_output_sandbox_of_job(self):
-        """
-        Re-generate output sandbox archive location from JMI cfg and job ID.
-        Download archive to `self.jmi_sandboxarc_dir`.
-        """
-        # reassemble output sandbox archive location from JMI cfg (session ID,
-        # sandbox bucket) and Job ID
-        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
-        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
-        self.out_sandbox_arc_file_path = os.path.join(
-            self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
-        if self.download_file(
-        outfile=self.out_sandbox_arc_file_path,
-        bucketname=self.sandbox_bucket,
-        key=out_sandbox_arc_key):
-            self.logger.info("Download of output sandbox archive successfull.")
 
     def submit_job(self):
         """
@@ -397,6 +344,19 @@ class JobManagementInterface(object):
         except:
             self.job.priority = 1
         self.logger.debug("success!")
+
+    def generate_job_id(self):
+        """
+        Generate job ID from current time, job owner name and random string
+        -> Should be unique  ;-)
+        """
+        timestr = time.strftime("%y%m%d%H%M%S",time.gmtime())
+        ownerhash = hashlib.sha1(self.job.owner).hexdigest()[:4]
+        rndstring = "%s%s%s" % (timestr, random.random(), self.job.owner)
+        rndhash = hashlib.sha1(rndstring).hexdigest()[:4]
+        job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
+        self.logger.info("generated job ID: %s " % job_id)
+        self.job.id = job_id
 
     def submit_sqs_message(self, priority, msg):
         """
@@ -526,6 +486,71 @@ class JobManagementInterface(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
         return True
+
+    def init_sdb_jobs_domain(self):
+        """
+        Perform all necessary steps to get a working boto SDB domain object.
+        If this method is successfull, after run the following attributes are
+        set: `self.sdbconn` and `self.sdb_domainobj_jobs`
+        """
+        sdbconn = self.connect_sdb()
+        if sdbconn:
+            self.sdbconn = sdbconn
+            # hard coded SDB domain name convention for the jobs' domain
+            domainobj = self.lookup_domain("%s_jobs"%self.jmi_session_id)
+            if domainobj:
+                self.sdb_domainobj_jobs = domainobj
+                return True
+        return False
+
+    def connect_sdb(self):
+        """
+        Connect to SDB and return boto connection object (or False).
+        """
+        self.logger.debug("connect to SDB...")
+        try:
+            sdbconn = boto.connect_sdb(
+                self.aws_accesskey,
+                self.aws_secretkey)
+            return sdbconn
+        except:
+            self.logger.error("Error while connecting to SDB.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+        return False
+
+    def lookup_domain(self, domainname):
+        """
+        Look up domain. Return boto SDB domain object or False.
+        """
+        self.logger.debug("look up SDB domain "+domainname+" ...")
+        try:
+            domainobj = self.sdbconn.lookup(domainname)
+        except:
+            self.logger.error("Error while SDB domain lookup.")
+            self.logger.error("Traceback:\n%s"%traceback.format_exc())
+            return False
+        if domainobj is None:
+            self.logger.error(("SDB domain does not exist: %s." % domainname))
+            return False
+        self.logger.info("SDB domain %s is now available." % domainname)
+        return domainobj
+
+    def receive_output_sandbox_of_job(self):
+        """
+        Re-generate output sandbox archive location from JMI cfg and job ID.
+        Download archive to `self.jmi_sandboxarc_dir`.
+        """
+        # reassemble output sandbox archive location from JMI cfg (session ID,
+        # sandbox bucket) and Job ID
+        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
+        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
+        self.out_sandbox_arc_file_path = os.path.join(
+            self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
+        if self.download_file(
+        outfile=self.out_sandbox_arc_file_path,
+        bucketname=self.sandbox_bucket,
+        key=out_sandbox_arc_key):
+            self.logger.info("Download of output sandbox archive successfull.")
 
     def gen_in_sandbox_arc_filename(self):
         """
