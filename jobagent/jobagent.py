@@ -641,14 +641,18 @@ class Job(object):
                 self.cumulus_accesskey = jobmsg.get_cumulus_accesskey()
                 self.cumulus_secretkey = jobmsg.get_cumulus_secretkey()
             self.storage_service = ss
-            self.output_sandbox_arc_filename = jobmsg.get_output_sandbox_arc_filename()
-            self.output_sandbox_archive_key = jobmsg.get_output_sandbox_archive_key()
+            self.output_sandbox_arc_filename = (
+                jobmsg.get_output_sandbox_arc_filename())
+            self.output_sandbox_archive_key = (
+                jobmsg.get_output_sandbox_archive_key())
             self.sandbox_archive_bucket = jobmsg.get_sandbox_bucket()
-            self.input_sandbox_archive_key = jobmsg.get_input_sandbox_archive_key()
+            self.input_sandbox_archive_key = (
+                jobmsg.get_input_sandbox_archive_key())
             self.job_msg_creation_time = jobmsg.get_job_msg_creation_time()
             self.output_sandbox_files = jobmsg.get_output_sandbox_files()
             self.job_owner = jobmsg.get_job_owner()
-            self.production_system_job_id = jobmsg.get_production_system_job_id()
+            self.production_system_job_id = (
+                jobmsg.get_production_system_job_id())
         except:
             self.logger.critical("Error while parsing SQS job message.")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -1519,9 +1523,9 @@ def parseargs():
         description=description)
 
     parser.add_option('-u', '--userdatafile', dest='userdata_file_path',
-                      help='file containing userdata string')
+        help='file containing userdata string')
     #parser.add_option('-i', '--instanceidfile', dest='instanceid_file_path',
-    #                  help='file containing instanceid string')
+    #    help='file containing instanceid string')
 
     # now read in the given arguments (from sys.argv by default)
     (options, args) = parser.parse_args()
