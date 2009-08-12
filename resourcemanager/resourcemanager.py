@@ -46,12 +46,13 @@ def main():
     - start urwid GUI and Resource Manager's main loop
     """
     start_options = parseargs()
-    sesspath = os.path.dirname(check_file(
-                               start_options.session_config_file_path))
+    sesspath = os.path.dirname(
+        check_file(start_options.session_config_file_path))
     session_run_dir = os.path.join(sesspath,"ResourceManagerRun")
-    session_dirs = dict(session_run_dir=session_run_dir,
-                        session_save_dir=os.path.join(session_run_dir,"save"),
-                        session_log_dir=os.path.join(session_run_dir,"log"))
+    session_dirs = dict(
+        session_run_dir=session_run_dir,
+        session_save_dir=os.path.join(session_run_dir,"save"),
+        session_log_dir=os.path.join(session_run_dir,"log"))
     for key in session_dirs:
         if not os.path.exists(session_dirs[key]):
             os.mkdir(session_run_dir)
@@ -63,7 +64,9 @@ def main():
     pipe_uiinfo_update_read, pipe_uiinfo_update_write = os.pipe()
     pipe_stderr_read, pipe_stderr_write = os.pipe()
     # set up logging logger
-    rootlog = ResourceManagerLogger(pipe_log_write, session_dirs['session_log_dir'])
+    rootlog = ResourceManagerLogger(
+        pipe_log_write,
+        session_dirs['session_log_dir'])
     mainlog = logging.getLogger("RM")
 
     # log stderr to stderr, to a real file and to a pipe (monitored by GUI)
@@ -74,13 +77,14 @@ def main():
 
     # a quick "dont-run-multiple-instances-in-the-same-session-dir" solution
     lockfilepath = os.path.join(session_run_dir,'RM.LOCKFILE')
-    mainlog.debug("check lockfile: "+lockfilepath)
+    mainlog.debug("check lockfile: %s" % lockfilepath)
     if os.path.exists(lockfilepath):
-        mainlog.critical(("lockfile exists: "+lockfilepath+"\n->exit. Is another "
-                          "instance of Resource Manager running the same session?"))
+        mainlog.critical(("lockfile exists: %s\n->exit. Is another "
+            "instance of Resource Manager running the same session?"
+            % lockfilepath))
         sys.exit(1)
     else:
-        mainlog.debug("lockfile did not exist. create: "+lockfilepath)
+        mainlog.debug("lockfile did not exist. create: %s" % lockfilepath)
         lock_fd = open(lockfilepath,'w')
 
     # here the crucial part begins
@@ -103,7 +107,8 @@ def main():
             gui.main()
             mainlog.debug("returned from gui.main()")
         except:     # delay exception, at first try to quit the other thread
-            mainlog.critical("GUI ERROR! send ResourceManagerMainLoop thread signal to QUIT..")
+            mainlog.critical(("GUI ERROR! send ResourceManagerMainLoop thread"
+                " signal to QUIT.."))
             queue_uicmds.put("quit")
             raise   # raise exception here
         mainlog.debug("Wait for thread(s) to join..")
@@ -129,16 +134,19 @@ def parseargs():
     usage = ("%prog --start --sessionconfig path/to/config.cfg \n"
              "%prog --resume --sessionconfig path/to/config.cfg \n"
              "try -h, --help and --version")
-    parser = optparse.OptionParser(usage=usage,version=version,description=description)
+    parser = optparse.OptionParser(
+        usage=usage,
+        version=version,
+        description=description)
 
     parser.add_option('-c', '--sessionconfig', dest='session_config_file_path',
-                      help='initial session configuration file (required for --start)')
-
-    parser.add_option('--start', action='store_true', dest='start', default=False,
-                      help='start new session (requires --sessionconfig to be set)')
-
-    parser.add_option('--resume', action='store_true', dest='resume', default=False,
-                      help='resume existing session (requires --sessionconfig to be set)')
+        help='initial session configuration file (required for --start)')
+    parser.add_option('--start', action='store_true', dest='start',
+        default=False,
+        help='start new session (requires --sessionconfig to be set)')
+    parser.add_option('--resume', action='store_true', dest='resume',
+        default=False,
+        help='resume existing session (requires --sessionconfig to be set)')
     # now read in the given arguments (from sys.argv by default)
     (options, args) = parser.parse_args()
 
@@ -147,10 +155,12 @@ def parseargs():
         parser.error('exactly one of [--start, --resume, ...] must be set!')
     elif options.start:
         if options.session_config_file_path is None:
-            parser.error('when --start is set, --sessionconfig path/to/config.cfg is required!')
+            parser.error(('when --start is set, --sessionconfig '
+                'path/to/config.cfg is required!'))
     elif options.resume:
         if options.session_config_file_path is None:
-            parser.error('when --resume is set, --sessionconfig path/to/config.cfg is required!')
+            parser.error(('when --resume is set, --sessionconfig '
+                'path/to/config.cfg is required!'))
     return options
 
 if __name__ == "__main__":
