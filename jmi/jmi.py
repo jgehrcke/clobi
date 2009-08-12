@@ -456,7 +456,7 @@ class JobManagementInterface(object):
                 k = boto.s3.key.Key(bucket)
                 k.key = key
                 self.logger.info(("store key %s as file %s from bucket %s"
-                    % (k.key, file, bucket.name)))
+                    % (k.key, outfile, bucket.name)))
                 k.get_contents_to_filename(outfile)
                 return True
             except:
