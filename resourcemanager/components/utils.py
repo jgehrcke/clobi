@@ -138,12 +138,12 @@ def check_file(file):
 
     @return: the absolute path of the file
     """
-    logger.debug("check_file("+file+")")
+    logger.debug("check_file(%s)" % file)
     if not os.path.exists(file):
-        logger.critical(file+' does not exist. Exit.')
+        logger.critical('%s does not exist. Exit.' % file)
         sys.exit(1)
     if not os.path.isfile(file):
-        logger.critical(file+' is not a file. Exit.')
+        logger.critical('%s is not a file. Exit.' % file)
         sys.exit(1)
     return os.path.abspath(file)
 
@@ -155,11 +155,11 @@ def check_dir(dir):
 
     @return: the absolute path of the directory
     """
-    logger.debug("check_dir("+dir+")")
+    logger.debug("check_dir(%s)" % dir)
     if not os.path.exists(dir):
-        logger.critical(dir+' does not exist. Exit.')
+        logger.critical('%s does not exist. Exit.' % dir)
         sys.exit(1)
     if not os.path.isdir(dir):
-        logger.critical(dir+' is not a file. Exit.')
+        logger.critical('%s is not a file. Exit.' % dir)
         sys.exit(1)
     return os.path.abspath(dir)
