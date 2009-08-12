@@ -44,9 +44,9 @@ class Tee(object):
     Provides a write()-method that writes to two filedescriptors.
 
     One should be standard-stdout/err and the other should describe a real file.
-    If sys.stdout is replaced with an instance of this `Tee`-class and sys.stderr is
-    set to sys.stdout, all stdout+stderr of the script is collected to console and
-    to file at the same time.
+    If sys.stdout is replaced with an instance of this `Tee`-class and
+    sys.stderr is set to sys.stdout, all stdout+stderr of the script is
+    collected to console and to file at the same time.
     """
     def __init__(self, stdouterr, file, pipe_write=None):
         self.stdouterr = stdouterr
@@ -119,12 +119,24 @@ def backup_file(file_path, backup_dir_path, archive_from = None):
 
 
 def timestring():
+    """
+    Return a string of local time.
+    """
     return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
+
 def utc_timestring():
+    """
+    Return a string of UTC time.
+    """
     return time.strftime("UTC%Y%m%d-%H%M%S", time.gmtime())
 
+
 def alarm(last_triggered, interval):
+    """
+    Compare `last_triggered` current time. If difference is bigger than
+    `interval`, return alarm (True).
+    """
     now = time.time()
     if min(0, (now - (last_triggered + interval))) == 0:
         return True
