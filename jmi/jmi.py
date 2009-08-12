@@ -26,6 +26,10 @@ import sys
 import base64
 import optparse
 import ConfigParser
+import random
+import hashlib
+import traceback
+import subprocess
 
 from components.cfg_parse_strzip import SafeConfigParserStringZip
 from components.utils import *
@@ -36,89 +40,35 @@ import boto
 
 def main():
     # define and create JMI's log dir (for stdout / stderr of this script)
-    jmi_logdir = "jmi_log"
-    jmi_logdir = os.path.abspath(jmi_logdir)
-    if not os.path.exists(jmi_logdir):
-        os.makedirs(jmi_logdir)
+    jmi_log_dir = "jmi_log"
+    jmi_log_dir = os.path.abspath(jmi_log_dir)
+    if not os.path.exists(jmi_log_dir):
+        os.makedirs(jmi_log_dir)
+
+    jmi_sandboxarc_dir = "jmi_sandboxarc_dir"
+    jmi_sandboxarc_dir = os.path.abspath(jmi_sandboxarc_dir)
+    if not os.path.exists(jmi_sandboxarc_dir):
+        os.makedirs(jmi_sandboxarc_dir)
+
+    jmi_jobid_dir = "jmi_jobid_dir"
+    jmi_jobid_dir = os.path.abspath(jmi_jobid_dir)
+    if not os.path.exists(jmi_jobid_dir):
+        os.makedirs(jmi_jobid_dir)
 
     # log stderr to stderr and to a real file
     stderr_logfile_path = os.path.join(
-        jmi_logdir,
+        jmi_log_dir,
         "%s_JMI_stderr.log" % utc_timestring())
     stderr_log_fd = open(stderr_logfile_path,'w')
     sys.stderr = Tee(sys.stderr, stderr_log_fd)
 
     # set up logger
-    rootlog = JMILogger(jmi_logdir)
+    rootlog = JMILogger(jmi_log_dir)
     logger.debug("parse commandline arguments..")
     start_options = parseargs()
 
-    jmi = JobManagementInterface(start_options)
+    jmi = JobManagementInterface(start_options,jmi_sandboxarc_dir,jmi_jobid_dir)
     jmi.act()
-
-
-
-# job_id = 'job-01'
-# input_sandbox_arc_filename = "input_sandbox_arc_%s.tar.bz2" % job_id
-# output_sandbox_arc_filename = "output_sandbox_arc_%s.tar.bz2" % job_id
-# input_sandbox_archive_key = "%s/jobs/%s" % (session_id,input_sandbox_arc_filename)
-# output_sandbox_archive_key = "%s/jobs/%s" % (session_id,output_sandbox_arc_filename)
-
-    # jobmsg = SQSJobMessage()
-    # jobmsg.init_write()
-    # jobmsg.set_job_id(job_id)
-    # jobmsg.set_executable('execute.sh')
-
-    # jobmsg.set_storage_service('S3')
-    # jobmsg.set_sandbox_archive_bucket('atlassessions')
-    # jobmsg.set_input_sandbox_archive_key(input_sandbox_archive_key)
-    # jobmsg.set_output_sandbox_arc_filename(output_sandbox_arc_filename)
-    # jobmsg.set_output_sandbox_archive_key(output_sandbox_archive_key)
-
-    # jobmsg.set_job_msg_creation_time(utc_timestring())
-    # jobmsg.set_output_sandbox_files("pillepalle.blub;stuff.txt")
-    # jobmsg.set_job_owner("jgehrcke")
-    # jobmsg.set_production_system_job_id(str(1))
-    # jobmsg_str = jobmsg.string()
-    # jobmsg_zip_str = jobmsg.zip_string()
-    # logger.info("SQS Job message:\n%s\nlength:%s" % (jobmsg_str,len(jobmsg_str)))
-    # logger.info("zip(SQS Job message):\n%s\nlength:%s"
-        # % (repr(jobmsg_zip_str),len(jobmsg_zip_str)))
-
-    # s3_upload_file(
-        # file=input_sandbox_arc_filename,
-        # bucketname="atlassessions",
-        # key=input_sandbox_archive_key)
-
-    # read_jobmsg = SQSJobMessage()
-    # read_jobmsg.init_read(jobmsg_zip_str)
-    # print read_jobmsg.get_output_sandbox_files()
-
-    # add_message(1, jobmsg_zip_str)
-
-def add_message(prio, msg):
-    sqsconn = boto.connect_sqs(aws_accesskey,aws_secretkey)
-    queues = sqsconn.get_all_queues()
-    for q in queues:
-        if q.url.endswith("P%s" % prio):
-            # By default, the class boto.sqs.message.Message is used.
-            # This does base64 encoding itself
-            sqs_msg = q.new_message(body=msg)
-            q.write(sqs_msg)
-            return True
-    logger.info("No queue found for priority %s" % prio)
-    return False
-
-def s3_upload_file(file, bucketname, key):
-    """
-    Upload a file as S3 object to bucket/key.
-    """
-    conn = boto.connect_s3(aws_accesskey,aws_secretkey)
-    bucket = conn.create_bucket(bucketname.lower())
-    k = boto.s3.key.Key(bucket)
-    k.key = key
-    k.set_contents_from_filename(file)
-    return True
 
 
 class JobManagementInterface(object):
@@ -128,11 +78,13 @@ class JobManagementInterface(object):
     An instance of this class is initialized with specific job information.
     Hence, **this is the Job Management Interface for a specific job**
     """
-    def __init__(self, options):
+    def __init__(self, options,jmi_sandboxarc_dir, jmi_jobid_dir):
         self.logger = logging.getLogger("jmi.py.JobManagementInterface")
         self.logger.debug("initialize JobManagementInterface object")
 
         # constructor arguments
+        self.jmi_sandboxarc_dir = check_dir(jmi_sandboxarc_dir)
+        self.jmi_jobid_dir = check_dir(jmi_jobid_dir)
         self.jmi_config_file_path = check_file(options.jmi_config_file_path)
         self.job_config_file_path = check_file(options.job_config_file_path)
         self.options = options
@@ -157,10 +109,76 @@ class JobManagementInterface(object):
             self.receive_output_sandbox_of_job()
 
     def generate_job_id(self):
-        pass
+        """
+        Generate job ID from current time, job owner name and random string
+        -> Should be unique  ;-)
+        """
+        timestr = time.strftime("%y%m%d%H%M%S",time.gmtime())
+        ownerhash = hashlib.sha1(self.job.owner).hexdigest()[:4]
+        rndstring = "%s%s%s" % (timestr, random.random(), self.job.owner)
+        rndhash = hashlib.sha1(rndstring).hexdigest()[:4]
+        job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
+        self.logger.info("generated job ID: %s " % job_id)
+        self.job.id = job_id
 
     def submit_job(self):
-        pass
+        """
+        Generate Job ID. Generate Inout/Output sandbox archive filenames and
+        storage service keys. Build SQSJobMessage. Build/Upload input sandbox.
+        Send SQSJobMessage. Return Job ID (and even write it to a file in a JMI
+        subdirectory: submitted_jobs/job_id.id).
+        """
+        self.generate_job_id()
+        self.in_sandbox_arc_filename = self.gen_in_sandbox_arc_filename()
+        self.in_sandbox_arc_file_path = os.path.join(
+            self.jmi_sandboxarc_dir, self.in_sandbox_arc_filename)
+        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
+        self.out_sandbox_arc_file_path = os.path.join(
+            self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
+        in_sandbox_arc_key = self.gen_in_sandbox_archive_key()
+        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
+        self.logger.debug(("Generated in_sandbox_arc_filename:%s ;"
+            " out_sandbox_arc_filename:%s ; out_sandbox_arc_key:%s ;"
+            " in_sandbox_arc_key:%s" % (
+                self.in_sandbox_arc_filename,
+                self.out_sandbox_arc_filename,
+                out_sandbox_arc_key,
+                in_sandbox_arc_key)))
+
+        jobmsg = SQSJobMessage()
+        jobmsg.init_write()
+        jobmsg.set_job_id(self.job.id)
+        jobmsg.set_executable(self.job.executable)
+
+        jobmsg.set_sandbox_storage_service(self.sandbox_storage_service)
+        jobmsg.set_sandbox_bucket(self.sandbox_bucket)
+        jobmsg.set_input_sandbox_archive_key(in_sandbox_arc_key)
+        jobmsg.set_output_sandbox_arc_filename(self.out_sandbox_arc_filename)
+        jobmsg.set_output_sandbox_archive_key(out_sandbox_arc_key)
+
+        jobmsg.set_job_msg_creation_time(utc_timestring())
+        jobmsg.set_output_sandbox_files(self.job.output_sandbox_files)
+        jobmsg.set_job_owner(self.job.owner)
+        jobmsg.set_production_system_job_id(self.job.production_system_job_id)
+        jobmsg_str = jobmsg.string()
+        jobmsg_zip_str = jobmsg.zip_string()
+        logger.info(("SQS Job message:\n%s\nlength:%s"
+            % (jobmsg_str,len(jobmsg_str))))
+        logger.info("zip(SQS Job message):\n%s\nlength:%s"
+            % (repr(jobmsg_zip_str),len(jobmsg_zip_str)))
+
+        if self.build_input_sandbox_arc():
+            pass
+            # if self.upload_file(
+            # file=self.in_sandbox_arc_filename,
+            # bucketname=self.sandbox_bucket,
+            # key=in_sandbox_arc_key):
+
+    # read_jobmsg = SQSJobMessage()
+    # read_jobmsg.init_read(jobmsg_zip_str)
+    # print read_jobmsg.get_output_sandbox_files()
+
+    # add_message(1, jobmsg_zip_str)
 
     def parse_jmi_config_file(self):
         self.logger.debug(("Parse Clobi's Job Management Interface config"
@@ -195,31 +213,126 @@ class JobManagementInterface(object):
         self.job.executable = job_config.get(
             'job_config',
             'executable')
-        self.job.job_owner = job_config.get(
-            'job_config',
-            'job_owner')
+        try:
+            self.job.owner = job_config.get(
+                'job_config',
+                'job_owner')
+        except:
+            self.job.owner = 'none'
         self.job.output_sandbox_files = job_config.get(
             'job_config',
             'output_sandbox_files')
         self.job.input_sandbox_files = job_config.get(
             'job_config',
             'input_sandbox_files')
-        self.job.input_sandbox_files = job_config.get(
-            'job_config',
-            'input_sandbox_files')
-        self.job.input_sandbox_files = job_config.get(
+        self.job.production_system_job_id = job_config.get(
             'job_config',
             'production_system_job_id')
+        try:
+            self.job.priority = job_config.getint(
+                'job_config',
+                'priority')
+        except:
+            self.job.priority = 1
         self.logger.debug("success!")
 
-    def submit(self):
-        pass
-        # generated on submission:
-        # job ID
-# output_sandbox_arc_filename = output_sandbox_arc_job-01.tar.bz2
-# input_sandbox_archive_key = 0907210728-testsess-0c7e/jobs/input_sandbox_arc_job-01.tar.bz2
-# output_sandbox_archive_key = 0907210728-testsess-0c7e/jobs/output_sandbox_arc_job-01.tar.bz2
-# job_msg_creation_time = UTC20090811-051014
+    def submit_sqs_message(self, priority, msg):
+        sqsconn = boto.connect_sqs(aws_accesskey,aws_secretkey)
+        queues = sqsconn.get_all_queues()
+        for q in queues:
+            if q.url.endswith("P%s" % prio):
+                # By default, the class boto.sqs.message.Message is used.
+                # This does base64 encoding itself
+                sqs_msg = q.new_message(body=msg)
+                q.write(sqs_msg)
+                return True
+        logger.info("No queue found for priority %s" % prio)
+        return False
+
+    def upload_file(self, file, bucketname, key):
+        """
+        Upload file to self.sandbox_storage_service. Currently, only
+        S3 is supported; Cumulus follows.
+        Return True in case of success
+        """
+        self.logger.info("send %s sandbox to %s" % (file,self.storage_service))
+        if self.storage_service == 's3':
+            try:
+                conn = boto.connect_s3(self.aws_accesskey,self.aws_secretkey)
+                bucket = conn.lookup(bucket_name=bucketname.lower())
+                k = boto.s3.key.Key(bucket)
+                k.key = key
+                self.logger.info(("store file %s as key %s to bucket %s"
+                    % (file, k.key, bucket.name)))
+                k.set_contents_from_filename(file)
+                return True
+            except:
+                self.logger.critical("Error while uploading.")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        else:
+            self.logger.error("unkown storage service")
+        return False
+
+    def build_input_sandbox_arc(self):
+        """
+        Start subprocess  tar cjf arc.tar.gz  x x x' to
+        compress all desired input files into an archive.
+        """
+        # at first process the filenames that were given in the job config
+        filename_list = self.job.input_sandbox_files.split(";")
+        tar_files_list = ' '.join(filename_list)
+
+        # build change directory string to cd to dir of job cfg file
+        cd = "-C %s" % os.path.abspath(os.path.dirname(
+            self.job_config_file_path))
+
+        # build up tar cmd
+        cmd = ("tar cjf %s --verbose  %s %s"
+            % (self.in_sandbox_arc_file_path, cd, tar_files_list))
+        self.logger.info(("run input sandbox compression as subprocess:"
+            " %s" % cmd))
+        try:
+            sp = subprocess.Popen(
+                args=[cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            if stderr:
+                self.logger.error("cmd %s STDERR:\n%s" % (cmd,stderr))
+                # existing stderr does not necessarily mean that the archive
+                # wasn't created.
+                if os.path.exists(self.in_sandbox_arc_file_path):
+                    self.logger.debug(("error during archiving. %s exists and"
+                        " is deleted now." % self.in_sandbox_arc_file_path))
+                    os.remove(self.in_sandbox_arc_file_path)
+                return False
+        except:
+            self.logger.critical("Error while compressing output sandbox")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+
+    def gen_in_sandbox_arc_filename(self):
+        return "in_sndbx_%s.tar.bz2" % self.job.id
+
+    def gen_out_sandbox_arc_filename(self,):
+        return "out_sndbx_%s.tar.bz2" % self.job.id
+
+    def gen_in_sandbox_archive_key(self):
+        return os.path.join(
+            self.jmi_session_id,
+            "jobs",
+            self.gen_in_sandbox_arc_filename())
+
+    def gen_out_sandbox_archive_key(self):
+        return os.path.join(
+            self.jmi_session_id,
+            "jobs",
+            self.gen_out_sandbox_arc_filename())
+
 
 class SQSJobMessage(object):
     def __init__(self):
@@ -251,10 +364,10 @@ class SQSJobMessage(object):
         self.config.set(self.section,'executable',exe)
     def get_executable(self):
         return self.config.get(self.section,'executable')
-    def set_storage_service(self, storage_service):
-        self.config.set(self.section,'storage_service',storage_service)
-    def get_storage_service(self):
-        return self.config.get(self.section,'storage_service')
+    def set_sandbox_storage_service(self, service):
+        self.config.set(self.section,'sandbox_storage_service', service)
+    def get_sandbox_storage_service(self):
+        return self.config.get(self.section,'sandbox_storage_service')
     def set_cumulus_hostname(self, cumulus_hostname):
         self.config.set(self.section,'cumulus_hostname',cumulus_hostname)
     def get_cumulus_hostname(self):
@@ -271,10 +384,10 @@ class SQSJobMessage(object):
         self.config.set(self.section,'cumulus_secretkey',cumulus_secretkey)
     def get_cumulus_secretkey(self,):
         return self.config.get(self.section,'cumulus_secretkey')
-    def set_sandbox_archive_bucket(self, bucket):
-        self.config.set(self.section,'sandbox_archive_bucket',bucket)
-    def get_sandbox_archive_bucket(self):
-        return self.config.get(self.section,'sandbox_archive_bucket')
+    def set_sandbox_bucket(self, bucket):
+        self.config.set(self.section,'sandbox_bucket',bucket)
+    def get_sandbox_bucket(self):
+        return self.config.get(self.section,'sandbox_bucket')
     def set_output_sandbox_arc_filename(self, filename):
         self.config.set(self.section,'output_sandbox_arc_filename',filename)
     def get_output_sandbox_arc_filename(self):
