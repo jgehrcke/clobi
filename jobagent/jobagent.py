@@ -631,7 +631,7 @@ class Job(object):
             self.logger.debug("config:\n%s"%jobmsg.config.write_to_string())
             self.job_id = jobmsg.get_job_id()
             self.executable = jobmsg.get_executable()
-            ss = jobmsg.get_storage_service().lower()
+            ss = jobmsg.get_sandbox_storage_service().lower()
             if not (ss == 's3' or ss == 'cumulus'):
                 self.logger.critical("Storage Service is not 's3' or 'cumulus'")
                 return False
@@ -643,7 +643,7 @@ class Job(object):
             self.storage_service = ss
             self.output_sandbox_arc_filename = jobmsg.get_output_sandbox_arc_filename()
             self.output_sandbox_archive_key = jobmsg.get_output_sandbox_archive_key()
-            self.sandbox_archive_bucket = jobmsg.get_sandbox_archive_bucket()
+            self.sandbox_archive_bucket = jobmsg.get_sandbox_bucket()
             self.input_sandbox_archive_key = jobmsg.get_input_sandbox_archive_key()
             self.job_msg_creation_time = jobmsg.get_job_msg_creation_time()
             self.output_sandbox_files = jobmsg.get_output_sandbox_files()
@@ -1450,10 +1450,10 @@ class SQSJobMessage(object):
         self.config.set(self.section,'executable',exe)
     def get_executable(self):
         return self.config.get(self.section,'executable')
-    def set_storage_service(self, storage_service):
-        self.config.set(self.section,'storage_service',storage_service)
-    def get_storage_service(self):
-        return self.config.get(self.section,'storage_service')
+    def set_sandbox_storage_service(self, service):
+        self.config.set(self.section,'sandbox_storage_service', service)
+    def get_sandbox_storage_service(self):
+        return self.config.get(self.section,'sandbox_storage_service')
     def set_cumulus_hostname(self, cumulus_hostname):
         self.config.set(self.section,'cumulus_hostname',cumulus_hostname)
     def get_cumulus_hostname(self):
@@ -1470,10 +1470,10 @@ class SQSJobMessage(object):
         self.config.set(self.section,'cumulus_secretkey',cumulus_secretkey)
     def get_cumulus_secretkey(self,):
         return self.config.get(self.section,'cumulus_secretkey')
-    def set_sandbox_archive_bucket(self, bucket):
-        self.config.set(self.section,'sandbox_archive_bucket',bucket)
-    def get_sandbox_archive_bucket(self):
-        return self.config.get(self.section,'sandbox_archive_bucket')
+    def set_sandbox_bucket(self, bucket):
+        self.config.set(self.section,'sandbox_bucket',bucket)
+    def get_sandbox_bucket(self):
+        return self.config.get(self.section,'sandbox_bucket')
     def set_output_sandbox_arc_filename(self, filename):
         self.config.set(self.section,'output_sandbox_arc_filename',filename)
     def get_output_sandbox_arc_filename(self):
