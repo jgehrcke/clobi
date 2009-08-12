@@ -151,6 +151,10 @@ class ResourceManagerMainLoop(threading.Thread):
             self.display_started_vms()
 
     def write_jmi_cfg_file(self):
+        """
+        Instruct the Session class to write a config file that contains all
+        information the JMI needs.
+        """
         self.ui_msg(("Instructed to write Clobi's Job Management Interface"
             " configuration file..."))
         self.session.write_job_management_interface_config_file()
@@ -255,6 +259,9 @@ class ResourceManagerMainLoop(threading.Thread):
         self.ui_msg("better: e.g. 'query_workspace vm-0133'.")
 
     def show_vm_info(self, cmd):
+        """
+        Try to read and display VM info from save.session.vms
+        """
         words = [word.lower() for word in cmd.split()]
         if len(words) == 2 and words[0] == 'show_vm_info':
             entered_vm_id = words[1]
@@ -265,6 +272,10 @@ class ResourceManagerMainLoop(threading.Thread):
         self.ui_msg("better: e.g. 'show_vm_info vm-0001'.")
 
     def set_highest_prio(self, cmd):
+        """
+        Validate input. Distinguish between higher/lower HP than before.
+        Instruct HP change.
+        """
         words = [word.lower() for word in cmd.split()]
         if len(words) == 2 and words[0] == 'set_highest_prio':
             try:
@@ -308,7 +319,8 @@ class ResourceManagerMainLoop(threading.Thread):
                         self.session.run_vms_ec2(number)
                     else:
                         self.ui_msg('aborted.')
-                elif self.yes_no('Run %s VM(s) on Nimbus Cloud %s?'%(number,index)):
+                elif self.yes_no(('Run %s VM(s) on Nimbus Cloud %s?'
+                %(number,index))):
                     self.session.run_vms_nimbus(index,number)
                 else:
                     self.ui_msg('aborted.')
@@ -335,9 +347,11 @@ class ResourceManagerMainLoop(threading.Thread):
         """
         now = time.time()
         next_sqs_check_in = min(0, (now -
-            (self.sqs_last_checked + self.session.inicfg.sqs.monitor_queues_pollinterval)))
+            (self.sqs_last_checked +
+                self.session.inicfg.sqs.monitor_queues_pollinterval)))
         next_sdb_check_in = min(0, (now -
-            (self.sdb_last_checked + self.session.inicfg.sdb.monitor_vms_pollinterval)))
+            (self.sdb_last_checked +
+                self.session.inicfg.sdb.monitor_vms_pollinterval)))
         self.request_update_uiinfo(dict(
             txt_sqs_upd=str(int(round(next_sqs_check_in))).zfill(5)+" s",
             txt_sdb_upd=str(int(round(next_sdb_check_in))).zfill(5)+" s"))
@@ -349,8 +363,10 @@ class ResourceManagerMainLoop(threading.Thread):
             self.sdb_check()
 
     def sdb_check(self):
+        """
+        Query SDB for state of VMs / JAa
+        """
         self.logger.debug("ResourceManagerMainLoop.sdb_check() called")
-
         # instruct to receive total number of running job agents.
         # if not False, then it is an integer :-)
         nbr_running_jobagents = self.session.sdb_session.count_jobagents()
@@ -360,12 +376,16 @@ class ResourceManagerMainLoop(threading.Thread):
         self.sdb_last_checked = time.time()
 
     def sqs_check(self):
+        """
+        Query SQS queues to receive the approximate number of jobs contained in
+        them.
+        """
         self.logger.debug("ResourceManagerMainLoop.sqs_check() called")
         self.session.sqs_session.query_queues()
         self.sqs_last_checked = time.time()
         stringlist = []
-        for prio, jobnr in self.session.sqs_session.queue_jobnbrs_laststate.items():
-            stringlist.append("P"+str(prio).zfill(2)+": %s job(s)" % jobnr)
+        for p, j in self.session.sqs_session.queue_jobnbrs_laststate.items():
+            stringlist.append("P"+str(p).zfill(2)+": %s job(s)" % j)
         self.request_update_uiinfo(dict(txt_sqs_jobs="\n".join(stringlist)))
 
     def ui_msg(self, msg):
@@ -413,6 +433,8 @@ class ResourceManagerMainLoop(threading.Thread):
         config = SafeConfigParserStringZip()
         config.add_section('uiinfo')
         for key, value in update_dict.items():
-            config.set('uiinfo'.encode('utf-8'),key.encode('utf-8'),value.encode('utf-8'))
+            config.set(
+                'uiinfo'.encode('utf-8'),
+                key.encode('utf-8'),value.encode('utf-8'))
         configstring = "%%"+config.write_to_string().decode('utf-8')+"&&"
         os.write(self.pipe_uiinfo_update_write, configstring.encode('utf-8'))
