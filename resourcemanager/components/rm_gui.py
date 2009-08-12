@@ -85,14 +85,20 @@ class ResourceManagerGUI(object):
         self.hd_pl_cl_1 = 	urwid.Pile([
             urwid.Text('SESSION INFO', align='center'),
             urwid.Divider("-"),
-            urwid.Columns([('fixed', 13, urwid.Text('Name:')), self.txt_name]),
-            urwid.Columns([('fixed', 13, urwid.Text('Clouds:')), self.txt_cloud]),
-            urwid.Columns([('fixed', 13, urwid.Text('SQS update:')), self.txt_sqs_upd]),
-            urwid.Columns([('fixed', 13, urwid.Text('SDB update:')), self.txt_sdb_upd]),
-            urwid.Columns([('fixed', 13, urwid.Text('started VMs:')), self.txt_started_vms]),
+            urwid.Columns([('fixed', 13, urwid.Text('Name:')),
+                self.txt_name]),
+            urwid.Columns([('fixed', 13, urwid.Text('Clouds:')),
+                self.txt_cloud]),
+            urwid.Columns([('fixed', 13, urwid.Text('SQS update:')),
+                self.txt_sqs_upd]),
+            urwid.Columns([('fixed', 13, urwid.Text('SDB update:')),
+                self.txt_sdb_upd]),
+            urwid.Columns([('fixed', 13, urwid.Text('started VMs:')),
+                self.txt_started_vms]),
             ])
 
-        self.txt_sqs_jobs = urwid.Text('P01: 27 jobs\nP02: 13 jobs', align='left', wrap='any')
+        self.txt_sqs_jobs = urwid.Text('P01: 27 jobs\nP02: 13 jobs',
+            align='left', wrap='any')
         self.hd_pl_cl_2 = 	urwid.Pile([
             urwid.Text('SQS DATA', align='center'),
             urwid.Divider("-"),
@@ -104,7 +110,8 @@ class ResourceManagerGUI(object):
             urwid.Text('SDB DATA', align='center'),
             urwid.Divider("-"),
             urwid.Text(('runningvms','running Job Agents:')),
-            urwid.Columns([('fixed', 9, urwid.Text('  total: ')), self.txt_total_nbr_jas])
+            urwid.Columns([('fixed', 9, urwid.Text('  total: ')),
+                self.txt_total_nbr_jas])
             ])
 
         # these are the initial values displayed in the UI info area
@@ -122,7 +129,8 @@ class ResourceManagerGUI(object):
             self.hd_pl_cl_2,
             self.hd_pl_cl_3], 1))
 
-        self.header_header = urwid.AttrWrap(urwid.Text(text_header,align='center'),'header')
+        self.header_header = urwid.AttrWrap(
+            urwid.Text(text_header,align='center'),'header')
         self.header = urwid.Pile([
             self.header_header,
             urwid.AttrWrap(self.header_body, 'header_body')])
@@ -199,14 +207,16 @@ class ResourceManagerGUI(object):
         a Text widget out of each line. One write may be returned in more than
         one read -> chopped lines -> reassembling post-processing -> listbox
         """
-        new_data = self.pipe_log_prefix + os.read(self.pipe_log_read,9999999).decode('UTF-8')
+        new_data = self.pipe_log_prefix + os.read(
+            self.pipe_log_read,9999999).decode('UTF-8')
         self.pipe_log_prefix = ''
         if new_data:
             new_lines = new_data.splitlines(True)
             if not new_lines[-1].endswith("\n"):
                 self.pipe_log_prefix = new_lines[-1]
                 del new_lines[-1]
-            new_text_list = [urwid.Text(line.rstrip(),wrap='any') for line in new_lines if line.rstrip()]
+            new_text_list = [urwid.Text(line.rstrip(),wrap='any')
+                for line in new_lines if line.rstrip()]
             self.listbox_extend(new_text_list)
 
     def pipe_cmdresp_event(self):
@@ -247,7 +257,7 @@ class ResourceManagerGUI(object):
                 read 2) datastringblubending&&
         """
         pipestring = (self.pipe_uiinfo_update_prefix +
-                      os.read(self.pipe_uiinfo_update_read,9999999).decode('UTF-8'))
+            os.read(self.pipe_uiinfo_update_read,9999999).decode('UTF-8'))
         self.pipe_uiinfo_update_prefix = ''
         datasets = []
         for string in pipestring.split("%%"):
@@ -259,11 +269,13 @@ class ResourceManagerGUI(object):
         for dataset in datasets:
             config = SafeConfigParserStringZip()
             config.read_from_string(dataset.encode('UTF-8'))
-            # now assemble update-dictionary that can be passed to uiiinfo_update().
-            # at this point, the section "uiinfo" is hard coded!!
+            # now assemble update-dictionary that can be passed to
+            # uiiinfo_update(). at this point, the section "uiinfo" is
+            # hard coded!!
             update_dict = {}
             for option in config.options('uiinfo'):
-                update_dict[option] = config.get('uiinfo',option).decode('UTF-8')
+                update_dict[option] = config.get(
+                    'uiinfo',option).decode('UTF-8')
             self.uiinfo_update(update_dict)
 
     def uiinfo_update(self, update_dict={}):
@@ -295,7 +307,8 @@ class ResourceManagerGUI(object):
         """
         scroll = True
         if self.list_walker.get_focus()[1] is not None:
-            if self.list_walker.get_focus()[1]+20 < len(self.list_walker.contents):
+            if (self.list_walker.get_focus()[1]+20 < len(
+            self.list_walker.contents)):
                 scroll = False
         self.list_walker.contents.extend(extension)
         del self.list_walker.contents[0:-10000]
@@ -315,7 +328,8 @@ class ResourceManagerGUI(object):
             if instring == 'quit':
                 self.logger.debug("raise urwid.ExitMainLoop()")
                 raise urwid.ExitMainLoop()
-        if key == 'up' or key == 'down' or key == 'page up' or key == 'page down':
+        if (key == 'up' or key == 'down' or key == 'page up' or
+        key == 'page down'):
             self.top.set_focus('body')
             self.top.keypress(self.main_loop.screen_size,key)
             self.top.set_focus('footer')
