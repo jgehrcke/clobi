@@ -99,7 +99,7 @@ class JobManagementInterface(object):
 
     def act(self):
         """
-        Perform an action on the job as defined in self.options
+        Perform an action on a job as defined in self.options
         """
         if self.options.submit:
             self.job_config_file_path = check_file(
@@ -115,6 +115,7 @@ class JobManagementInterface(object):
             self.kill_job()
         elif self.options.monitor:
             self.monitor_job()
+            self.get_job_status()
         elif self.options.rcv_output_sandbox:
             self.receive_output_sandbox_of_job()
 
@@ -193,9 +194,32 @@ class JobManagementInterface(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
+    def get_job_status(self):
+        """
+        Query SDB for a special job item in jobs' domain. Only get 'status'.
+        """
+        try:
+            self.logger.debug("Job %s: look for 'status'in SDB." % self.job.id)
+            item = self.sdb_domainobj_jobs.get_attributes(
+                item_name=self.job.id,
+                attribute_name='status')
+            if 'status' in item:
+                self.logger.info(("status for %s: %s"
+                    % (self.job.id,item['status'])))
+                return item['status']
+            else:
+                self.logger.debug(("Job %s: 'status' not set."
+                    " Likely the job is still not initialized by any Job Agent"
+                    % self.job.id))
+                return False
+        except:
+            self.logger.critical("SDB error")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+        return False
+
     def monitor_job(self):
         """
-        Initialize SDB and receive and return complete Job item
+        Initialize SDB and receive and return complete Job item.
         """
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
