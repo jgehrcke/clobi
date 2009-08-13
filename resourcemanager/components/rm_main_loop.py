@@ -387,7 +387,7 @@ class ResourceManagerMainLoop(threading.Thread):
         # instruct to receive total number of running job agents.
         # if not False, then it is an integer :-)
         nbr_running_jobagents = self.session.sdb_session.count_jobagents()
-        if nbr_running_jobagents:
+        if nbr_running_jobagents is not False:
             self.request_update_uiinfo(dict(
                 txt_total_nbr_jas=str(nbr_running_jobagents)))
         self.sdb_last_checked = time.time()
