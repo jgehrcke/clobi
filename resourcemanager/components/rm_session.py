@@ -999,6 +999,7 @@ class InitialSessionConfig(object):
         self.ec2.use = None
         self.ec2.instancetype = None
         self.ec2.ami_id = None
+        self.ec2.kernel_id = None
         self.ec2.max_instances = None
         self.ec2.instance_state_pollinterval = None
         self.sdb = Object()
@@ -1083,6 +1084,13 @@ class InitialSessionConfig(object):
             self.ec2.instance_state_pollinterval = session_config.getint(
                 'EC2',
                 'instance_state_pollinterval')
+            try:
+                self.ec2.kernel_id = session_config.get(
+                    'EC2',
+                    'aki_id').decode('UTF-8')
+            except:
+                # kernel ID setting is optional
+                pass
             self.ec2.use = True
 
         self.nimbus.use = False
@@ -1656,6 +1664,7 @@ class EC2(object):
         self.session = session
         self.instancetype = self.session.inicfg.ec2.instancetype
         self.ami_id = self.session.inicfg.ec2.ami_id
+        self.kernel_id = self.session.inicfg.ec2.kernel_id
         self.ec2conn = boto.connect_ec2(self.session.inicfg.aws.accesskey,
                                         self.session.inicfg.aws.secretkey)
 
@@ -1698,6 +1707,7 @@ class EC2(object):
                     max_count=1,
                     user_data=self.session.generate_userdata(vm_id),
                     image_id=self.ami_id,
+                    kernel_id=self.kernel_id,
                     instance_type=self.instancetype)
             except:
                 self.logger.error("Traceback:\n%s"%traceback.format_exc())
