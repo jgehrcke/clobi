@@ -1782,12 +1782,14 @@ class ResourceManagerLogger(object):
             "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
         self.fh.setFormatter(self.formatter_file)
 
-        # # "console" handler (to stderr by default) with level ERROR
-        # self.ch = logging.StreamHandler()
-        # self.ch.setLevel(logging.ERROR)
-        # self.formatter_console = logging.Formatter(
-        #    "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
-        # self.ch.setFormatter(self.formatter_console)
+        # "console" handler (to stderr by default) with level ERROR
+        # this is for the non-GUI phase of RM.
+        # just before the GUI starts, this handler is removed.
+        self.ch = logging.StreamHandler()
+        self.ch.setLevel(logging.ERROR)
+        self.formatter_console = logging.Formatter(
+           "%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+        self.ch.setFormatter(self.formatter_console)
 
         # pipe handler to GUI
         # about encoding:
@@ -1806,7 +1808,7 @@ class ResourceManagerLogger(object):
         # add handler
         self.logger.addHandler(self.fh)
         self.logger.addHandler(self.ph)
-        # self.logger.addHandler(self.ch)
+        self.logger.addHandler(self.ch)
 
         # set logging for boto -> to file, not to console, no propagation to
         # higher levels in hierarchy
@@ -1816,6 +1818,9 @@ class ResourceManagerLogger(object):
         self.fh_boto = logging.FileHandler(boto_log_file_path, encoding="UTF-8")
         self.fh_boto.setFormatter(self.formatter_file)
         self.logger_boto.addHandler(self.fh_boto)
+
+    def remove_console_handler(self):
+        self.logger.removeHandler(self.ch)
 
     def debug(self, msg):
         self.logger.debug(msg)

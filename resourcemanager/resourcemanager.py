@@ -55,7 +55,7 @@ def main():
         session_log_dir=os.path.join(session_run_dir,"log"))
     for key in session_dirs:
         if not os.path.exists(session_dirs[key]):
-            os.mkdir(session_run_dir)
+            os.mkdir(session_dirs[key])
 
     # create inter thread communication components
     queue_uicmds = Queue.Queue()
@@ -96,6 +96,9 @@ def main():
             session_dirs)
         mainlog.info("start ResourceManagerMainLoop thread...")
         rm_mainloop_thread.start()
+        mainlog.debug(("remove console handler from logger to keep stderr"
+            " free while GUI phase."))
+        rootlog.remove_console_handler()
         try:
             gui = ResourceManagerGUI(
                 pipe_log_read=pipe_log_read,
