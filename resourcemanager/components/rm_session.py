@@ -1740,7 +1740,7 @@ class EC2(object):
                     if inststate == 'running':
                         new_state = 'started'
                         self.session.sdb_session.register_vm_started(
-                            clclrunorder['vm_id'])
+                            ec2_run_order['vm_id'])
                     if (inststate == 'terminated' or
                     inststate == 'shutting-down'):
                         new_state = 'error'

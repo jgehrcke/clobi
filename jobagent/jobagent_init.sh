@@ -57,10 +57,10 @@ fi
 # Nimbus' metadata server currently does not support instance ID.
 if ${is_ec2}; then
     echo "# EC2: receive instance ID..."
-    wget ${MetaDataServerURL}/2008-08-08/meta-data/instance-id -O ${InstanceIdFile}
+    wget ${MetaDataServerURL}/2007-03-01/meta-data/instance-id -O ${InstanceIdFile}
     if [ $? -ne 0 ]; then
         echo "  error while retrieving instance ID: jobagent_init exit."
-        exit $?
+        #exit $?
     fi
     InstanceID=$(cat ${InstanceIdFile})
     echo "   Instance ID: ${InstanceID}"
