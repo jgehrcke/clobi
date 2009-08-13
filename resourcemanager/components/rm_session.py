@@ -1543,6 +1543,13 @@ class NimbusCloud(object):
                 # this subprocess returned and was analyzed. We don't need the
                 # cloud client wrapper instance anymore: mark it to delete
                 delete_indices.append(idx)
+            else:
+                # subprocess did not end
+                # log every tenth time (statistically)
+                if random.random() < 0.1:
+                    self.logger.debug(("cloud client wrapper subprocess with"
+                        " action '%s' did not end until now."
+                        % clclrunorder['action']))
 
         # iterate in reversed order (otherwise IndexErrors) to delete objects
         for idx in reversed(delete_indices):

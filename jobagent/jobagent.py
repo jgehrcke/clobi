@@ -1231,18 +1231,22 @@ class JobAgent(object):
         self.logger.info(("MY LOG WILL NOW BE BUNDLED TO %s. THIS IS"
             " LIKELY THE LAST LOG MESSAGE YOU WILL EVER SEE FROM ME"
             % tarfile_path))
-        tar = tarfile.open(tarfile_path, "w:bz2")
-        tar.add(
-            self.inicfg.boto_logfile_path,
-            os.path.basename(self.inicfg.boto_logfile_path))
-        tar.add(
-            self.inicfg.logfile_path,
-            os.path.basename(self.inicfg.logfile_path))
-        tar.add(
-            self.inicfg.stderr_logfile_path,
-            os.path.basename(self.inicfg.stderr_logfile_path))
-        tar.close()
-        self.logger.debug("bundled.")
+        try:
+            tar = tarfile.open(tarfile_path, "w:bz2")
+            tar.add(
+                self.inicfg.boto_logfile_path,
+                os.path.basename(self.inicfg.boto_logfile_path))
+            tar.add(
+                self.inicfg.logfile_path,
+                os.path.basename(self.inicfg.logfile_path))
+            tar.add(
+                self.inicfg.stderr_logfile_path,
+                os.path.basename(self.inicfg.stderr_logfile_path))
+            tar.close()
+            self.logger.debug("bundled.")
+        except:
+                self.logger.critical("Error while bundling log archive")
+                self.logger.critical("Traceback:\n%s"%traceback.format_exc())            
 
         # now upload..
         self.logger.info("send Job Agent log to %s"
