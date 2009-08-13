@@ -55,7 +55,7 @@ def main():
         session_log_dir=os.path.join(session_run_dir,"log"))
     for key in session_dirs:
         if not os.path.exists(session_dirs[key]):
-            os.mkdir(session_dirs[key])
+            os.makedirs(session_dirs[key])
 
     # create inter thread communication components
     queue_uicmds = Queue.Queue()

@@ -546,32 +546,33 @@ class Session(object):
         Build string like "EC2: 3    Nb1: 15    Nb2: 1" out of it and return.
         Parse only, if file was changed since last time read.
         """
-        really_last_modified = os.path.getmtime(self.save_vms_file_path)
-        if self.save_vms_file_last_change_time != really_last_modified:
-            self.logger.debug(("save.session.vms was modified, so read it "
-                "again to build started_vms_string"))
-            self.save_vms_file_last_change_time = really_last_modified
-            # open file and make sure it's closed afterwards with `with`
-            with open(self.save_vms_file_path) as save_vms_file:
-                hist = collections.defaultdict(int)
-                for line in save_vms_file:
-                    data = line.rstrip().split(";")
-                    if len(data) >= 3:
-                        vm_id = data[0]
-                        cloudname = data[1]
-                        status = data[2]
-                        if status == 'started':
-                            hist[cloudname] += 1
+        if os.path.exists(self.save_vms_file_path):
+            really_last_modified = os.path.getmtime(self.save_vms_file_path)
+            if self.save_vms_file_last_change_time != really_last_modified:
+                self.logger.debug(("save.session.vms was modified, so read it "
+                    "again to build started_vms_string"))
+                self.save_vms_file_last_change_time = really_last_modified
+                # open file and make sure it's closed afterwards with `with`
+                with open(self.save_vms_file_path) as save_vms_file:
+                    hist = collections.defaultdict(int)
+                    for line in save_vms_file:
+                        data = line.rstrip().split(";")
+                        if len(data) >= 3:
+                            vm_id = data[0]
+                            cloudname = data[1]
+                            status = data[2]
+                            if status == 'started':
+                                hist[cloudname] += 1
 
-            # sort by key and assamble string
-            started_vms_string_list = []
-            keys = hist.keys()
-            keys.sort()
-            for key in keys:
-                started_vms_string_list.append("%s: %s" % (key, hist[key]))
-            started_vms_string = '   '.join(started_vms_string_list)
-            self.logger.debug("started_vms_string: %s" % started_vms_string)
-            return started_vms_string
+                # sort by key and assamble string
+                started_vms_string_list = []
+                keys = hist.keys()
+                keys.sort()
+                for key in keys:
+                    started_vms_string_list.append("%s: %s" % (key, hist[key]))
+                started_vms_string = '   '.join(started_vms_string_list)
+                self.logger.debug("started_vms_string: %s" % started_vms_string)
+                return started_vms_string
         return False
 
     def nimbus_cloud_indices(self):
