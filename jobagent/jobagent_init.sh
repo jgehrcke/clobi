@@ -68,7 +68,8 @@ fi
 
 # this is just for convenience during testing: no VM rebuild everytime I want
 # to test a new job agent :-)
-wget http://gehrcke.de/gsoc/ja/jobagent -O jobagent.py
+wget http://gehrcke.de/gsoc/ja/jobagent.tar.bz2 -O jobagent.tar.bz2
+tar xjf jobagent.tar.bz2
 
 echo "# running jobagent.py --userdatafile ${UserDataFile}"
 /opt/bin/python2.6 jobagent.py --userdatafile ${UserDataFile}
