@@ -348,7 +348,7 @@ class SimpleDB(object):
                 # (there is no way to delete an SQS message once
                 # sent, it has to be received and then deleted via
                 # receipt handle. Hence, to delete a job, it must
-                # be marked as 'removal_instructed' in SDB, which was checked 
+                # be marked as 'removal_instructed' in SDB, which was checked
                 # here. The outer fct will delete the SQS msg.)
                 self.logger.info(("Job %s is marked as 'removal_instructed'"
                     " in SDB." % job_id))
@@ -1227,26 +1227,40 @@ class JobAgent(object):
         tarfile_path = os.path.join(
             os.path.dirname(self.inicfg.logfile_path),
             "jobagentlog_%s.tar.bz2" % self.inicfg.vm_id)
-        # this very small task is okay for Python's tarfile module
+
         self.logger.info(("MY LOG WILL NOW BE BUNDLED TO %s. THIS IS"
             " LIKELY THE LAST LOG MESSAGE YOU WILL EVER SEE FROM ME"
             % tarfile_path))
+
+        tar_files_list = "-C %s" % os.path.dirname(self.inicfg.logfile_path)
+        tar_files_list += os.path.basename(self.inicfg.boto_logfile_path)
+        tar_files_list += os.path.basename(self.inicfg.logfile_path)
+        tar_files_list += os.path.basename(self.inicfg.stderr_logfile_path)
+
+        cmd = ("tar cjf %s --verbose --ignore-failed-read %s"
+            % (tarfile_path, tar_files_list))
+        self.logger.info(("run Job Agent log compression as subprocess: %s "
+            % (cmd)))
         try:
-            tar = tarfile.open(tarfile_path, "w:bz2")
-            tar.add(
-                self.inicfg.boto_logfile_path,
-                os.path.basename(self.inicfg.boto_logfile_path))
-            tar.add(
-                self.inicfg.logfile_path,
-                os.path.basename(self.inicfg.logfile_path))
-            tar.add(
-                self.inicfg.stderr_logfile_path,
-                os.path.basename(self.inicfg.stderr_logfile_path))
-            tar.close()
-            self.logger.debug("bundled.")
+            sp = subprocess.Popen(
+                args=[cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            if stderr:
+                self.logger.error("cmd %s STDERR:\n%s" % (cmd,stderr))
+                # existing stderr does not necessarily mean that the archive
+                # wasn't created.
+                if not os.path.exists(tarfile_path):
+                    self.logger.error("output sandbox archive was not created.")
+                    return False
         except:
-                self.logger.critical("Error while bundling log archive")
-                self.logger.critical("Traceback:\n%s"%traceback.format_exc())            
+            self.logger.critical("Error while bundling log archive")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
 
         # now upload..
         self.logger.info("send Job Agent log to %s"
