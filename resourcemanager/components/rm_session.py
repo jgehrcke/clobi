@@ -815,6 +815,14 @@ class Session(object):
                 nbcloud.destroy_workspace(eprfile_path=eprfile,vm_id=vm_id)
                 return
 
+    def softkill_vm(self, vm_id):
+        """
+        Set softkill flag in SDB and -- if that was successful -- update VM
+        status in save.session.vms
+        """
+        if self.sdb_session.set_vm_softkill_flag(vm_id):
+            self.update_save_vms_file_entry(vm_id, 'softkill_instructed')
+
     def load_initial_session_config(self):
         """
         Load initial session config (from user-given file). This includes

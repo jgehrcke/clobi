@@ -131,6 +131,8 @@ class ResourceManagerMainLoop(threading.Thread):
                     self.set_highest_prio(uicmd)
                 elif uicmd.startswith('write_jmi_cfg_file'):
                     self.write_jmi_cfg_file()
+                elif uicmd.startswith('softkill_vm'):
+                    self.softkill_vm(uicmd)
                 else:
                     self.ui_msg('unknown command')
 
@@ -271,6 +273,21 @@ class ResourceManagerMainLoop(threading.Thread):
             return
         self.ui_msg("better: e.g. 'show_vm_info vm-0001'.")
 
+    def softkill_vm(self, cmd):
+        """
+        Instruct to set softkill flag for given VM ID. Check if VM is listed in
+        save.session.vms.
+        """
+        words = [word.lower() for word in cmd.split()]
+        if len(words) == 2 and words[0] == 'softkill_vm':
+            entered_vm_id = words[1]
+            vm_info = self.session.get_vm_info_from_file(vm_id=entered_vm_id)
+            if vm_info:
+                if self.yes_no("Set softkill flag for VM %s?" % entered_vm_id):
+                    self.session.softkill_vm(entered_vm_id)
+            return
+        self.ui_msg("better: e.g. 'softkill_vm vm-0001'.")        
+        
     def set_highest_prio(self, cmd):
         """
         Validate input. Distinguish between higher/lower HP than before.
@@ -408,6 +425,7 @@ class ResourceManagerMainLoop(threading.Thread):
             +"\n* query_workspace vm-X:   Query Nimbus workspace corresponding to VM ID."
             +"\n* destroy_workspace vm-X: Destroy Nimbus workspace corresponding to VM ID."
             +"\n* show_vm_info vm-X:      Show VM info as stored in save.session.vms."
+            +"\n* softkill_vm vm-X:       Set softkill flag for given VM."
             +"\n* set_highest_prio HP:    Set highest priority to HP; create/delete queues."
             +"\n* poll_sdb:               Update SDB monitoring data."
             +"\n* poll_sqs:               Update SQS monitoring data."
