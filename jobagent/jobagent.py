@@ -1233,9 +1233,9 @@ class JobAgent(object):
             % tarfile_path))
 
         tar_files_list = "-C %s" % os.path.dirname(self.inicfg.logfile_path)
-        tar_files_list += os.path.basename(self.inicfg.boto_logfile_path)
-        tar_files_list += os.path.basename(self.inicfg.logfile_path)
-        tar_files_list += os.path.basename(self.inicfg.stderr_logfile_path)
+        tar_files_list += " " +os.path.basename(self.inicfg.boto_logfile_path)
+        tar_files_list += " " +os.path.basename(self.inicfg.logfile_path)
+        tar_files_list += " " +os.path.basename(self.inicfg.stderr_logfile_path)
 
         cmd = ("tar cjf %s --verbose --ignore-failed-read %s"
             % (tarfile_path, tar_files_list))
