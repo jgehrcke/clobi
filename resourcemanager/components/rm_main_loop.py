@@ -167,7 +167,7 @@ class ResourceManagerMainLoop(threading.Thread):
         the UI info panel.
         """
         started_vms_string = self.session.get_started_vms_string()
-        if started_vms_string:
+        if started_vms_string is not False:
             self.request_update_uiinfo(dict(txt_started_vms=started_vms_string))
 
     def check_runinstances_request_states_if_necessary(self):
