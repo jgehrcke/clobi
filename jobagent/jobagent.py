@@ -374,7 +374,7 @@ class SimpleDB(object):
                 " it: set status/inittime/sqs_msg_id" % job_id))
             item = self.boto_domainobj_jobs.new_item(job_id)
             item['status'] = 'initialized'
-            item['vm_id'] = 'vm_id'
+            item['vm_id'] = vm_id
             item['inittime'] = utc_timestring()
             item['sqs_msg_id'] = sqs_msg_id
             item.save()
