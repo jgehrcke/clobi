@@ -318,7 +318,7 @@ class SimpleDB(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
-    def initialize_job(self, job_id, sqs_msg_id, job_machine_index):
+    def initialize_job(self, job_id, sqs_msg_id, job_machine_index, vm_id):
         """
         Update SDB that we've received a job. The expected case is that an item
         with the job id is NOT existing in the jobs' SDB domain.
@@ -374,6 +374,7 @@ class SimpleDB(object):
                 " it: set status/inittime/sqs_msg_id" % job_id))
             item = self.boto_domainobj_jobs.new_item(job_id)
             item['status'] = 'initialized'
+            item['vm_id'] = 'vm_id'
             item['inittime'] = utc_timestring()
             item['sqs_msg_id'] = sqs_msg_id
             item.save()
@@ -720,7 +721,8 @@ class Job(object):
         initreturn = self.sdb.initialize_job(
             self.job_id,
             self.boto_sqsmsg.id,
-            self.machine_index)
+            self.machine_index,
+            self.ja_inicfg.vm_id)
         if initreturn == 'success':
             self.logger.info("Job SDB init successfull.")
             if self.sdb.update_job_state(self.job_id, 'get_input'):
