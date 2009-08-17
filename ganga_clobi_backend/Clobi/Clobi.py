@@ -25,6 +25,7 @@ __date__    = "some date"
 __version__ = "some version"
 
 import os
+import traceback
 
 from Ganga.Core import Sandbox
 from Ganga.GPIDev.Adapters.IBackend import IBackend
@@ -128,103 +129,101 @@ class Clobi(IBackend):
 
         return job_config
 
-
-
     def submit(self, jobconfig, master_input_sandbox):
-        """Submit job to backend.
-        Return value: True if job is submitted successfully,
-        or False otherwise
         """
+        Submit job to backend.
+        Return: True if job is submitted successfully; False otherwise.
+        """
+        # current limitations:
+        # no args, no env, only Executable Application
+
+        job = self.getJobObject()
+        # copy files to input sandbox directory (*not* compressed)
+        # but: this creates an "_input_sandbox_NR_master.tgz" file, too.
+        # I want the master input sandbox uncompressed!
+        job.createInputSandbox(jobconfig.getSandboxFiles())
+        inbox_dir = os.path.abspath(job.getInputWorkspace().getPath())
+
+        jmi_config = gather_clobi_jmi_config()
         try:
-
-            # current limitations:
-            # no args, no env, only Executable Application
-
-            job = self.getJobObject()
-            # copy files to input sandbox directory (*not* compressed)
-            # but: this creates an "_input_sandbox_NR_master.tgz" file, too.
-            # I want the master input sandbox uncompressed!
-            job.createInputSandbox(jobconfig.getSandboxFiles())
-            inbox_dir = os.path.abspath(job.getInputWorkspace().getPath())
-
-            # ----------------------------------------------------------------------
-            # gather Clobi Job Management Interface cfg attributes and create it!
-            # (jmi_aws_accesskey, jmi_aws_secretkey, jmi_session_id,
-            # jmi_sandbox_storage_service, jmi_sandbox_bucket)
-            # ----------------------------------------------------------------------
-            jmi_config = {}
-            jmi_config['aws_secretkey'] = config['jmi_aws_secretkey']
-            jmi_config['aws_accesskey'] = config['jmi_aws_accesskey']
-            jmi_config['sandbox_bucket'] = config['jmi_sandbox_bucket']
-            jmi_config['sandbox_storage_service'] = config['jmi_sandbox_storage_service']
-            jmi_config['jmi_session_id'] = config['jmi_session_id']
             clobijmi = ClobiJobManagementInterface(
                 jmi_config,jmi_sandboxarc_dir=inbox_dir,logging_logger=logger)
             clobi_job_config = self.gather_clobi_job_config(jobconfig)
             clobi_job_id = clobijmi.generate_job_id(clobi_job_config)
-            clobijmi.submit_job(clobi_job_config, clobi_job_id)
-
-            # print
-            # print jobconfig.getSandboxFiles()
-            # print
-            # inbox =
-            # inbox = job.createPackedInputSandbox( jobconfig.getSandboxFiles() )
-            # print inbox
-            # print
-
-            # for file in os.listdir(inbox_dir):
-                # print file
-
-            # inbox = job.createPackedInputSandbox( jobconfig.getSandboxFiles() )
-            # inpDir = job.getInputWorkspace().getPath()
-            # outDir = job.getOutputWorkspace().getPath()
-
-
-
-            # cdfpath = self.preparejob(jobconfig, master_input_sandbox)
-            # status = self.submit_cdf(cdfpath)
-            # return status
+            job.backend.id = clobi_job_id
+            if clobijmi.submit_job(clobi_job_config, clobi_job_id):
+                return True
         except:
-            import traceback
             logger.error("Traceback:\n%s"%traceback.format_exc())
         return False
 
-
-    def resubmit( self ):
+    def resubmit(self):
         """Resubmit job that has already been configured.
 
           Return value: True if job is resubmitted successfully,
                         or False otherwise"""
-
         pass
 
+    def kill(self):
+        """
+        Set kill flag for job; regardless of current state. Actual killing
+        happens with delay and -- of course -- depends on the real state of the
+        job. Hence, a returned True here does not mean anything for the job's
+        state. This is only reliably returned by `updateMonitoringInformation`.
+        Return: True if job kill flag was set; False otherwise
+        """
+        job = self.getJobObject()
+        jmi_config = gather_clobi_jmi_config()
+        clobijmi = ClobiJobManagementInterface(
+            jmi_config,logging_logger=logger)
+        return clobijmi.kill_job(job.backend.id)
 
-    def kill( self  ):
-        """Kill running job.
-
-         No arguments other than self
-
-         Return value: True if job killed successfully,
-                       or False otherwise"""
-        pass
-
-
-
-    def preparejob( self, jobconfig, master_input_sandbox ):
-        """Prepare Condor description file"""
-
-        pass
-
-    def updateMonitoringInformation( jobs ):
-        pass
+    def updateMonitoringInformation(jobs):
+        logger.info("updateMonitoringInformation")
+        jmi_config = gather_clobi_jmi_config()
+        clobijmi = ClobiJobManagementInterface(
+            jmi_config,logging_logger=logger)
+        for job in jobs:
+            status = clobijmi.get_job_status(job.backend.id)
+            job.backend.status = status
+            if status in ['initialized','get_input','running','save_output']:
+                job.updateStatus('running')
+            elif status == 'completed_success':
+                job.updateStatus('completed')
+            elif status in ['completed_error','removal_instructed',
+            'removed','run_error']:
+                job.updateStatus('failed')
+            elif status == 'not_set':
+                # no status set in SimpleDB: the job is not initialized by any
+                # Job Agent until now. It is not marked to be killed. It is not
+                # marked to be removed. We're here: Ganga says it's submitted.
+                # There's no conclusion; don't change the state.
+                pass
+            else:
+                logger.error("unknown status returned by Clobi JMI: %s" %status)
 
     updateMonitoringInformation = staticmethod(updateMonitoringInformation)
+
+
+def gather_clobi_jmi_config():
+    """
+    Gather Clobi Job Management Interface cfg attributes and return config.
+    (jmi_aws_accesskey, jmi_aws_secretkey, jmi_session_id,
+    jmi_sandbox_storage_service, jmi_sandbox_bucket)
+    """
+    jmi_config = {}
+    jmi_config['aws_secretkey'] = config['jmi_aws_secretkey']
+    jmi_config['aws_accesskey'] = config['jmi_aws_accesskey']
+    jmi_config['sandbox_bucket'] = config['jmi_sandbox_bucket']
+    jmi_config['sandbox_storage_service'] = \
+        config['jmi_sandbox_storage_service']
+    jmi_config['jmi_session_id'] = config['jmi_session_id']
+    return jmi_config
 
 """
 Declare Clobi Job Config and Clobi Runtime Handler.
 Add ClobiRTHandler for Executable application to allHandlers.
 """
-
 class ClobiJobConfig(StandardJobConfig):
     """
     I support job_owner and priority,

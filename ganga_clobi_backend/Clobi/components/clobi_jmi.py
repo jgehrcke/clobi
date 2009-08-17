@@ -176,7 +176,7 @@ class ClobiJobManagementInterface(object):
     An instance of this class is initialized with specific job information.
     Hence, **this is the Job Management Interface for a specific job**
     """
-    def __init__(self, jmi_config, jmi_sandboxarc_dir, jmi_jobid_dir=None,
+    def __init__(self, jmi_config, jmi_sandboxarc_dir=None, jmi_jobid_dir=None,
                  logging_logger=None):
         if logging_logger is None:
             self.logger = logging.getLogger("ClobiJobManagementInterface")
@@ -210,13 +210,14 @@ class ClobiJobManagementInterface(object):
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
             return False
-        self.logger.info(("Mark job item %s in domain %s with kill flag."
+        self.logger.debug(("Mark job item %s in domain %s with kill flag...."
             % (job_id,self.sdb_domainobj_jobs.name)))
         try:
             item = self.sdb_domainobj_jobs.put_attributes(
                 item_name=job_id,
                 attributes=dict(kill_flag='1'))
-            self.logger.info("kill flag set.")
+            self.logger.info(("Marked Clobi job %s in SDB domain %s with "
+                "kill flag." % (job_id,self.sdb_domainobj_jobs.name)))
             return True
         except:
             self.logger.critical("SDB error")
@@ -277,6 +278,9 @@ class ClobiJobManagementInterface(object):
         """
         Query SDB for a special job item in jobs' domain. Only get 'status'.
         """
+        if not self.init_sdb_jobs_domain():
+            self.logger.info("SDB jobs domain initialization error.")
+            return False
         try:
             self.logger.debug("Job %s: look for 'status'in SDB." % job_id)
             item = self.sdb_domainobj_jobs.get_attributes(
@@ -290,7 +294,7 @@ class ClobiJobManagementInterface(object):
                 self.logger.debug(("Job %s: 'status' not set."
                     " Likely the job is still not initialized by any Job Agent"
                     % job_id))
-                return False
+                return 'not_set'
         except:
             self.logger.critical("SDB error")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -592,7 +596,7 @@ class ClobiJobManagementInterface(object):
         if domainobj is None:
             self.logger.error(("SDB domain does not exist: %s." % domainname))
             return False
-        self.logger.info("SDB domain %s is now available." % domainname)
+        self.logger.debug("SDB domain %s is now available." % domainname)
         return domainobj
 
     def receive_output_sandbox_of_job(self):
