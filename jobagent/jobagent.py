@@ -797,11 +797,10 @@ class Job(object):
                 % (exe,self.workingdir)))
             self.subprocess_starttime = time.time()
             self.subprocess = subprocess.Popen(
-                args=[exe],
+                args=['/bin/bash', exe],
                 stdout=self.stdouterr_file,
                 stderr=subprocess.STDOUT,
-                cwd=self.workingdir,
-                shell=True)
+                cwd=self.workingdir)
         except:
             self.logger.critical("Error in run_subprocess()")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
