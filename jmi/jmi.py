@@ -74,16 +74,16 @@ def main():
     jmi.act()
 
 
-class JobManagementInterface(object):
+class ClobiJobManagementInterface(object):
     """
     This class provides an interface to Clobi's job scheduling infrastructure.
     Basically, it implements submit, remove, kill, monitor and receive ouput.
     An instance of this class is initialized with specific job information.
     Hence, **this is the Job Management Interface for a specific job**
     """
-    def __init__(self, options,jmi_sandboxarc_dir, jmi_jobid_dir):
-        self.logger = logging.getLogger("jmi.py.JobManagementInterface")
-        self.logger.debug("initialize JobManagementInterface object")
+    def __init__(self, options, jmi_sandboxarc_dir, jmi_jobid_dir):
+        self.logger = logging.getLogger("jmi.py.ClobiJobManagementInterface")
+        self.logger.debug("initialize ClobiJobManagementInterface object")
 
         # constructor arguments
         self.jmi_sandboxarc_dir = check_dir(jmi_sandboxarc_dir)
