@@ -30,13 +30,11 @@ import random
 import hashlib
 import traceback
 import subprocess
+import os
 
-from components.cfg_parse_strzip import SafeConfigParserStringZip
-from components.utils import *
-
-sys.path.append("components")
+from cfg_parse_strzip import SafeConfigParserStringZip
+from utils import *
 import boto
-
 
 def main():
     # define and create JMI's log dir (for stdout / stderr of this script)
@@ -68,10 +66,107 @@ def main():
     # set up logger
     rootlog = JMILogger(jmi_log_dir)
     logger.debug("parse commandline arguments..")
-    start_options = parseargs()
+    options = parseargs()
 
-    jmi = JobManagementInterface(start_options,jmi_sandboxarc_dir,jmi_jobid_dir)
-    jmi.act()
+    check_dir(jmi_sandboxarc_dir)
+    check_dir(jmi_jobid_dir)
+    jmi_config_file_path = check_file(options.jmi_config_file_path)
+    # parse JMI config file
+    jmi_config = parse_jmi_config_file(jmi_config_file_path)
+
+    jmi = ClobiJobManagementInterface(
+        jmi_config,
+        jmi_sandboxarc_dir,
+        jmi_jobid_dir,
+        logger)
+
+    if options.submit:
+        job_config = parse_job_config_file(
+            check_file(options.job_config_file_path))
+        jmi.submit_job(job_config,
+            jmi.generate_job_id(job_config),
+            options.job_config_file_path)
+    elif options.remove:
+        jmi.remove_job(options.job_id)
+    elif options.kill:
+        jmi.kill_job(options.job_id)
+    elif options.monitor:
+        jmi.monitor_job(options.job_id)
+        jmi.get_job_status(options.job_id)
+    elif options.rcv_output_sandbox:
+        jmi.receive_output_sandbox_of_job(options.job_id)
+
+def parse_job_config_file(job_config_file_path):
+    """
+    Parse job configuration file using ConfigParser. If `priority` or
+    `job_owner` are not given, use default values.
+    Return `job_config`, a dict containing Job cfg attributes
+    """
+    logger.debug(("Parse Clobi's Job configuration"
+        " file %s ..." % job_config_file_path))
+    config = ConfigParser.SafeConfigParser()
+    config.readfp(open(job_config_file_path))
+    job_config = {}
+
+    job_config['executable'] = config.get(
+        'job_config',
+        'executable')
+    try:
+        job_config['owner'] = config.get(
+            'job_config',
+            'job_owner')
+    except:
+        job_config['owner'] = 'none'
+    job_config['output_sandbox_files'] = config.get(
+        'job_config',
+        'output_sandbox_files')
+    job_config['input_sandbox_files'] = config.get(
+        'job_config',
+        'input_sandbox_files')
+    try:
+        job_config['production_system_job_id'] = config.get(
+            'job_config',
+            'production_system_job_id')
+    except:
+        job_config['production_system_job_id'] = 'none'
+    try:
+        job_config['priority'] = config.getint(
+            'job_config',
+            'priority')
+    except:
+        job_config['priority'] = 1
+    logger.debug("success!")
+    return job_config
+
+
+def parse_jmi_config_file(jmi_config_file_path):
+    """
+    Parse Clobi's Job Management Interface configuration file using
+    ConfigParser.
+    Return `jmi_config`, a dict containing JMI cfg attributes
+    """
+    logger.debug(("Parse Clobi's Job Management Interface config"
+        " file %s ..." % jmi_config_file_path))
+    config = ConfigParser.SafeConfigParser()
+    config.readfp(open(jmi_config_file_path))
+    jmi_config = {}
+    jmi_config['aws_secretkey'] = config.get(
+        'JMI_config',
+        'jmi_aws_secretkey')
+    jmi_config['aws_accesskey'] = config.get(
+        'JMI_config',
+        'jmi_aws_accesskey')
+    jmi_config['sandbox_bucket'] = config.get(
+        'JMI_config',
+        'jmi_sandbox_bucket')
+    jmi_config['sandbox_storage_service'] = config.get(
+        'JMI_config',
+        'jmi_sandbox_storage_service')
+    jmi_config['jmi_session_id'] = config.get(
+        'JMI_config',
+        'jmi_session_id')
+    logger.debug("success!")
+    return jmi_config
 
 
 class ClobiJobManagementInterface(object):
@@ -81,62 +176,45 @@ class ClobiJobManagementInterface(object):
     An instance of this class is initialized with specific job information.
     Hence, **this is the Job Management Interface for a specific job**
     """
-    def __init__(self, options, jmi_sandboxarc_dir, jmi_jobid_dir):
-        self.logger = logging.getLogger("jmi.py.ClobiJobManagementInterface")
+    def __init__(self, jmi_config, jmi_sandboxarc_dir, jmi_jobid_dir=None,
+                 logging_logger=None):
+        if logging_logger is None:
+            self.logger = logging.getLogger("ClobiJobManagementInterface")
+        else:
+            self.logger = logging_logger
         self.logger.debug("initialize ClobiJobManagementInterface object")
 
         # constructor arguments
-        self.jmi_sandboxarc_dir = check_dir(jmi_sandboxarc_dir)
-        self.jmi_jobid_dir = check_dir(jmi_jobid_dir)
-        self.jmi_config_file_path = check_file(options.jmi_config_file_path)
-        self.options = options
+        self.jmi_sandboxarc_dir = jmi_sandboxarc_dir
+        self.jmi_jobid_dir = jmi_jobid_dir
+        self.aws_secretkey = jmi_config['aws_secretkey']
+        self.aws_accesskey = jmi_config['aws_accesskey']
+        self.sandbox_bucket = jmi_config['sandbox_bucket']
+        self.sandbox_storage_service = jmi_config['sandbox_storage_service']
+        self.jmi_session_id = jmi_config['jmi_session_id']
 
-        # parse JMI config file
-        self.parse_jmi_config_file()
 
         # to be populated
         self.job = Object()
 
-    def act(self):
+    def kill_job(self, job_id):
         """
-        Perform an action on a job as defined in self.options
-        """
-        if self.options.submit:
-            self.job_config_file_path = check_file(
-                self.options.job_config_file_path)
-            self.parse_job_config_file()
-            self.submit_job()
-        else:
-            # get Job ID from commandline
-            self.job.id = self.options.job_id
-        if self.options.remove:
-            self.remove_job()
-        elif self.options.kill:
-            self.kill_job()
-        elif self.options.monitor:
-            self.monitor_job()
-            self.get_job_status()
-        elif self.options.rcv_output_sandbox:
-            self.receive_output_sandbox_of_job()
-
-    def kill_job(self):
-        """
-        Init SDB and mark job with the kill flag. This simply sets the kill 
-        flag without checking job's state. If the job is not initialized by a 
-        Job Agent, the kill flag has the same effect as the 'removal_instructed' 
-        status: The job will be rejected and the SQS msg is deleted by the Job 
-        Agent. If the job is already initialized, the Job Agent will 
-        periodically check the kill flag and -- in case it is set -- kill the 
-        job. 
+        Init SDB and mark job with the kill flag. This simply sets the kill
+        flag without checking job's state. If the job is not initialized by a
+        Job Agent, the kill flag has the same effect as the 'removal_instructed'
+        status: The job will be rejected and the SQS msg is deleted by the Job
+        Agent. If the job is already initialized, the Job Agent will
+        periodically check the kill flag and -- in case it is set -- kill the
+        job.
         """
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
             return False
         self.logger.info(("Mark job item %s in domain %s with kill flag."
-            % (self.job.id,self.sdb_domainobj_jobs.name)))
+            % (job_id,self.sdb_domainobj_jobs.name)))
         try:
             item = self.sdb_domainobj_jobs.put_attributes(
-                item_name=self.job.id,
+                item_name=job_id,
                 attributes=dict(kill_flag='1'))
             self.logger.info("kill flag set.")
             return True
@@ -145,19 +223,19 @@ class ClobiJobManagementInterface(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
-    def remove_job(self):
+    def remove_job(self, job_id):
         """
-        Init SDB and try to mark job as removal_instructed. If the job item is 
-        alredy existing in the SDB jobs domain, then a Job Agent is already 
-        working on the job and it cannot be removal_instructed anymore. 
+        Init SDB and try to mark job as removal_instructed. If the job item is
+        alredy existing in the SDB jobs domain, then a Job Agent is already
+        working on the job and it cannot be removal_instructed anymore.
         """
         if not self.init_sdb_jobs_domain():
             self.logger.info("SDB jobs domain initialization error.")
             return False
         self.logger.info(("Try to remove job with item %s in domain %s..."
-            % (self.job.id,self.sdb_domainobj_jobs.name)))
+            % (job_id,self.sdb_domainobj_jobs.name)))
         try:
-            item = self.sdb_domainobj_jobs.get_item(self.job.id)
+            item = self.sdb_domainobj_jobs.get_item(job_id)
         except:
             self.logger.critical("SDB error")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
@@ -165,26 +243,26 @@ class ClobiJobManagementInterface(object):
         if item is not None:
             if 'kill_flag' in item and item['kill_flag'] == '1':
                 self.logger.error(("Job %s is already marked to be killed."
-                    % self.job.id))
+                    % job_id))
             if 'status' in item:
                 if item['status'] == 'removal_instructed':
                     self.logger.error(("Job %s is already marked to be removed."
-                        % self.job.id))
+                        % job_id))
                 elif (item['status'] == 'initialized' or
                 item['status'] == 'running'):
                     self.logger.error(("Job %s is already initialized/running."
-                        " You can set the kill flag if you like."%self.job.id))
+                        " You can set the kill flag if you like."%job_id))
                 elif (item['status'] == 'save_output' or
                 item['status'].startswith('completed') or
                 item['status'] == 'run_error'):
                     self.logger.error(("Job %s is already completed or near"
-                        " completion." % self.job.id))
+                        " completion." % job_id))
             return False
         try:
             self.logger.info(("Item %s did not exist (no Job Agent working on"
                 " this job). Create item and set 'status' to "
-                "'removal_instructed'..." % self.job.id))
-            item = self.sdb_domainobj_jobs.new_item(self.job.id)
+                "'removal_instructed'..." % job_id))
+            item = self.sdb_domainobj_jobs.new_item(job_id)
             item['status'] = 'removal_instructed'
             item['removalinstrtime'] = utc_timestring()
             item.save()
@@ -195,30 +273,30 @@ class ClobiJobManagementInterface(object):
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
 
-    def get_job_status(self):
+    def get_job_status(self, job_id):
         """
         Query SDB for a special job item in jobs' domain. Only get 'status'.
         """
         try:
-            self.logger.debug("Job %s: look for 'status'in SDB." % self.job.id)
+            self.logger.debug("Job %s: look for 'status'in SDB." % job_id)
             item = self.sdb_domainobj_jobs.get_attributes(
-                item_name=self.job.id,
+                item_name=job_id,
                 attribute_name='status')
             if 'status' in item:
                 self.logger.info(("status for %s: %s"
-                    % (self.job.id,item['status'])))
+                    % (job_id,item['status'])))
                 return item['status']
             else:
                 self.logger.debug(("Job %s: 'status' not set."
                     " Likely the job is still not initialized by any Job Agent"
-                    % self.job.id))
+                    % job_id))
                 return False
         except:
             self.logger.critical("SDB error")
             self.logger.critical("Traceback:\n%s"%traceback.format_exc())
         return False
 
-    def monitor_job(self):
+    def monitor_job(self, job_id):
         """
         Initialize SDB and receive and return complete Job item.
         """
@@ -227,9 +305,9 @@ class ClobiJobManagementInterface(object):
             return False
         self.logger.info("SDB jobs domain successfully initialized.")
         self.logger.debug(("Retrieve item %s from SDB domain %s"
-            % (self.job.id,self.sdb_domainobj_jobs.name)))
+            % (job_id,self.sdb_domainobj_jobs.name)))
         try:
-            item = self.sdb_domainobj_jobs.get_item(self.job.id)
+            item = self.sdb_domainobj_jobs.get_item(job_id)
         except:
             self.logger.error("Error while retrieving item.")
             self.logger.error("Traceback:\n%s"%traceback.format_exc())
@@ -243,22 +321,21 @@ class ClobiJobManagementInterface(object):
             self.logger.error("Item does not exist.")
             return False
 
-    def submit_job(self):
+    def submit_job(self, job_config, job_id, job_config_file_path=None):
         """
-        Generate Job ID. Generate Inout/Output sandbox archive filenames and
+        Use Job ID. Generate Input/Output sandbox archive filenames and
         storage service keys. Build SQSJobMessage. Build/Upload input sandbox.
-        Send SQSJobMessage. Return Job ID (and even write it to a file in a JMI
-        subdirectory: submitted_jobs/job_id.id).
+        Send SQSJobMessage. Return Job ID (and -- optionally -- write it to a
+        file in a JMI subdirectory: submitted_jobs/job_id.id).
         """
-        self.generate_job_id()
-        self.in_sandbox_arc_filename = self.gen_in_sandbox_arc_filename()
+        self.in_sandbox_arc_filename = self.gen_in_sandbox_arc_filename(job_id)
         self.in_sandbox_arc_file_path = os.path.join(
             self.jmi_sandboxarc_dir, self.in_sandbox_arc_filename)
-        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
+        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename(job_id)
         self.out_sandbox_arc_file_path = os.path.join(
             self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
-        in_sandbox_arc_key = self.gen_in_sandbox_archive_key()
-        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
+        in_sandbox_arc_key = self.gen_in_sandbox_archive_key(job_id)
+        out_sandbox_arc_key = self.gen_out_sandbox_archive_key(job_id)
         self.logger.debug(("Generated in_sandbox_arc_filename:%s ;"
             " out_sandbox_arc_filename:%s ; out_sandbox_arc_key:%s ;"
             " in_sandbox_arc_key:%s" % (
@@ -269,8 +346,8 @@ class ClobiJobManagementInterface(object):
 
         jobmsg = SQSJobMessage()
         jobmsg.init_write()
-        jobmsg.set_job_id(self.job.id)
-        jobmsg.set_executable(self.job.executable)
+        jobmsg.set_job_id(job_id)
+        jobmsg.set_executable(job_config['executable'])
 
         jobmsg.set_sandbox_storage_service(self.sandbox_storage_service)
         jobmsg.set_sandbox_bucket(self.sandbox_bucket)
@@ -279,9 +356,10 @@ class ClobiJobManagementInterface(object):
         jobmsg.set_output_sandbox_archive_key(out_sandbox_arc_key)
 
         jobmsg.set_job_msg_creation_time(utc_timestring())
-        jobmsg.set_output_sandbox_files(self.job.output_sandbox_files)
-        jobmsg.set_job_owner(self.job.owner)
-        jobmsg.set_production_system_job_id(self.job.production_system_job_id)
+        jobmsg.set_output_sandbox_files(job_config['output_sandbox_files'])
+        jobmsg.set_job_owner(job_config['owner'])
+        jobmsg.set_production_system_job_id(
+            job_config['production_system_job_id'])
         jobmsg_str = jobmsg.string()
         jobmsg_zip_str = jobmsg.zip_string()
         logger.info(("SQS Job message:\n%s\nlength:%s"
@@ -289,102 +367,45 @@ class ClobiJobManagementInterface(object):
         logger.info("zip(SQS Job message):\n%s\nlength:%s"
             % (repr(jobmsg_zip_str),len(jobmsg_zip_str)))
 
-        if self.build_input_sandbox_arc():
+        if self.build_input_sandbox_arc(job_config, job_config_file_path):
             self.logger.info("Input sandbox archive successfully built")
             if self.upload_file(
             file=self.in_sandbox_arc_file_path,
             bucketname=self.sandbox_bucket,
             key=in_sandbox_arc_key):
                 self.logger.info("Input sandbox archive successfully uploaded.")
-                if self.submit_sqs_message(self.job.priority, jobmsg_zip_str):
+                if self.submit_sqs_message(job_config['priority'],
+                jobmsg_zip_str):
                     self.logger.info("Job message successfully sent to SQS.")
-                    job_id_file_path = os.path.join(
-                        self.jmi_jobid_dir,
-                        self.job.id+".id")
-                    fd = open(job_id_file_path,'w')
-                    fd.write(self.job.id)
-                    fd.close()
                     self.logger.info(("Job with ID %s successfully submitted."
-                        " Wrote ID to %s" % (self.job.id,job_id_file_path)))
+                        % job_id))
+                    if self.jmi_jobid_dir is not None:
+                        try:
+                            job_id_file_path = os.path.join(
+                                self.jmi_jobid_dir,
+                                job_id+".id")
+                            fd = open(job_id_file_path,'w')
+                            fd.write(job_id)
+                            fd.close()
+                            self.logger.info(("Wrote ID to %s"
+                                % job_id_file_path))
+                        except:
+                            self.logger.exception("Could not write ID file")
+                    return job_id
+        return False
 
-    def parse_jmi_config_file(self):
-        """
-        Parse Clobi's Job Management Interface configuration file using
-        ConfigParser.
-        """
-        self.logger.debug(("Parse Clobi's Job Management Interface config"
-            " file %s ..." % self.jmi_config_file_path))
-        jmi_config = ConfigParser.SafeConfigParser()
-        jmi_config.readfp(open(self.jmi_config_file_path))
-
-        self.aws_secretkey = jmi_config.get(
-            'JMI_config',
-            'jmi_aws_secretkey')
-        self.aws_accesskey = jmi_config.get(
-            'JMI_config',
-            'jmi_aws_accesskey')
-        self.sandbox_bucket = jmi_config.get(
-            'JMI_config',
-            'jmi_sandbox_bucket')
-        self.sandbox_storage_service = jmi_config.get(
-            'JMI_config',
-            'jmi_sandbox_storage_service')
-        self.jmi_session_id = jmi_config.get(
-            'JMI_config',
-            'jmi_session_id')
-        self.logger.debug("success!")
-
-    def parse_job_config_file(self):
-        """
-        Parse job configuration file using ConfigParser. If `priority` or
-        `job_owner` are not given, use default values.
-        """
-        self.logger.debug(("Parse Clobi's Job configuration"
-            " file %s ..." % self.job_config_file_path))
-        job_config = ConfigParser.SafeConfigParser()
-        job_config.readfp(open(self.job_config_file_path))
-
-        self.job.executable = job_config.get(
-            'job_config',
-            'executable')
-        try:
-            self.job.owner = job_config.get(
-                'job_config',
-                'job_owner')
-        except:
-            self.job.owner = 'none'
-        self.job.output_sandbox_files = job_config.get(
-            'job_config',
-            'output_sandbox_files')
-        self.job.input_sandbox_files = job_config.get(
-            'job_config',
-            'input_sandbox_files')
-        try:
-            self.job.production_system_job_id = job_config.get(
-                'job_config',
-                'production_system_job_id')
-        except:
-            self.job.production_system_job_id = 'none'
-        try:
-            self.job.priority = job_config.getint(
-                'job_config',
-                'priority')
-        except:
-            self.job.priority = 1
-        self.logger.debug("success!")
-
-    def generate_job_id(self):
+    def generate_job_id(self, job_config):
         """
         Generate job ID from current time, job owner name and random string
-        -> Should be unique  ;-)
+        -> Should be unique "enough" for now.
         """
         timestr = time.strftime("%y%m%d%H%M%S",time.gmtime())
-        ownerhash = hashlib.sha1(self.job.owner).hexdigest()[:4]
-        rndstring = "%s%s%s" % (timestr, random.random(), self.job.owner)
+        ownerhash = hashlib.sha1(job_config['owner']).hexdigest()[:4]
+        rndstring = "%s%s%s" % (timestr, random.random(), job_config['owner'])
         rndhash = hashlib.sha1(rndstring).hexdigest()[:4]
         job_id = "job-%s-%s-%s" % (timestr,ownerhash,rndhash)
         self.logger.info("generated job ID: %s " % job_id)
-        self.job.id = job_id
+        return job_id
 
     def submit_sqs_message(self, priority, msg):
         """
@@ -419,7 +440,7 @@ class ClobiJobManagementInterface(object):
         S3 is supported; Cumulus follows.
         Return True in case of success
         """
-        self.logger.info(("send %s to %s"
+        self.logger.debug(("send %s to %s"
             % (file,self.sandbox_storage_service)))
         if self.sandbox_storage_service.lower() == 's3':
             try:
@@ -427,7 +448,7 @@ class ClobiJobManagementInterface(object):
                 bucket = conn.lookup(bucket_name=bucketname.lower())
                 k = boto.s3.key.Key(bucket)
                 k.key = key
-                self.logger.info(("store file %s as key %s to bucket %s"
+                self.logger.debug(("store file %s as key %s to bucket %s"
                     % (file, k.key, bucket.name)))
                 k.set_contents_from_filename(file)
                 return True
@@ -473,30 +494,41 @@ class ClobiJobManagementInterface(object):
             self.logger.error("unkown storage service")
         return False
 
-    def build_input_sandbox_arc(self):
+    def build_input_sandbox_arc(self, job_config, job_config_file_path=None):
         """
-        Start subprocess  tar cjf arc.tar.gz  x x x' to
+        Start subprocess 'tar cjf arc.tar.bz2 x x x' to
         compress all desired input files into an archive.
+        If `job_config_file_path` is given, then a change directory string is
+        inserted into the tar command. It changes to the directory of job config
+        file. This behaviour is for the use case, when a job is submitted via
+        real job config file.
+
+        When this module is not main and there is no job config file (only
+        a job config dict), then the `job_config['input_sandbox_files']` has to
+        contain a change directory command itself to point tar to the
+        right place.
         """
         # at first process the filenames that were given in the job config
-        filename_list = self.job.input_sandbox_files.split(";")
+        filename_list = job_config['input_sandbox_files'].split(";")
         tar_files_list = ' '.join(filename_list)
 
         # build change directory string to cd to dir of job cfg file
-        cd = "-C %s" % os.path.abspath(os.path.dirname(
-            self.job_config_file_path))
+        if job_config_file_path:
+            cd = "-C %s" % os.path.abspath(os.path.dirname(
+                job_config_file_path))
+        else:
+            cd = ''
 
         # build up tar cmd
         cmd = ("tar cjf %s --verbose %s %s"
             % (self.in_sandbox_arc_file_path, cd, tar_files_list))
-        self.logger.info(("run input sandbox compression as subprocess:"
+        self.logger.debug(("run input sandbox compression as subprocess:"
             " %s" % cmd))
         try:
             sp = subprocess.Popen(
-                args=[cmd],
+                args=cmd.split(),
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=True)
+                stderr=subprocess.PIPE)
             # wait for process to terminate, get stdout and stderr
             stdout, stderr = sp.communicate()
             self.logger.debug("subprocess STDOUT:\n%s" % stdout)
@@ -570,8 +602,8 @@ class ClobiJobManagementInterface(object):
         """
         # reassemble output sandbox archive location from JMI cfg (session ID,
         # sandbox bucket) and Job ID
-        out_sandbox_arc_key = self.gen_out_sandbox_archive_key()
-        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename()
+        out_sandbox_arc_key = self.gen_out_sandbox_archive_key(job_id)
+        self.out_sandbox_arc_filename = self.gen_out_sandbox_arc_filename(job_id)
         self.out_sandbox_arc_file_path = os.path.join(
             self.jmi_sandboxarc_dir, self.out_sandbox_arc_filename)
         if self.download_file(
@@ -580,19 +612,19 @@ class ClobiJobManagementInterface(object):
         key=out_sandbox_arc_key):
             self.logger.info("Download of output sandbox archive successfull.")
 
-    def gen_in_sandbox_arc_filename(self):
+    def gen_in_sandbox_arc_filename(self, job_id):
         """
         Generate input sandbox archive filename from Job ID
         """
-        return "in_sndbx_%s.tar.bz2" % self.job.id
+        return "in_sndbx_%s.tar.bz2" % job_id
 
-    def gen_out_sandbox_arc_filename(self,):
+    def gen_out_sandbox_arc_filename(self, job_id):
         """
         Generate output sandbox archive filename from Job ID
         """
-        return "out_sndbx_%s.tar.bz2" % self.job.id
+        return "out_sndbx_%s.tar.bz2" % job_id
 
-    def gen_in_sandbox_archive_key(self):
+    def gen_in_sandbox_archive_key(self, job_id):
         """
         Generate input sandbox archive key for the storage service. Build the
         key from the input sandbox archive filename.
@@ -600,9 +632,9 @@ class ClobiJobManagementInterface(object):
         return os.path.join(
             self.jmi_session_id,
             "jobs",
-            self.gen_in_sandbox_arc_filename())
+            self.gen_in_sandbox_arc_filename(job_id))
 
-    def gen_out_sandbox_archive_key(self):
+    def gen_out_sandbox_archive_key(self, job_id):
         """
         Generate output sandbox archive key for the storage service. Build the
         key from the output sandbox archive filename.
@@ -610,7 +642,7 @@ class ClobiJobManagementInterface(object):
         return os.path.join(
             self.jmi_session_id,
             "jobs",
-            self.gen_out_sandbox_arc_filename())
+            self.gen_out_sandbox_arc_filename(job_id))
 
 
 class SQSJobMessage(object):
