@@ -781,6 +781,26 @@ class Job(object):
         """
         Run job executable as subprocess. Store stdout/err in job log directory.
         """
+        def chmod_executable(path):
+            "make a file executable by the current user (u+x)"
+            import stat
+            os.chmod(path,stat.S_IXUSR|os.stat(path).st_mode)
+
+        def is_executable(path):
+            "check if the file is executable by the current user (u+x)"
+            import stat
+            return os.stat(path)[0] & stat.S_IXUSR
+
+        exe = os.path.abspath(os.path.join(self.workingdir,self.executable))
+        try:
+            if not is_executable(exe):
+                chmod_executable(exe)
+        except:
+            self.logger.critical(("Error while checking/making %s executable."
+                % exe))
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+
         try:
             self.logger.info("run Job %s as subprocess" % self.job_id)
             timestr = utc_timestring()
@@ -792,12 +812,16 @@ class Job(object):
                 % self.stdouterr_file_path))
             self.stdouterr_file = open(self.stdouterr_file_path,'w')
 
-            exe = os.path.abspath(os.path.join(self.workingdir,self.executable))
-            self.logger.debug(("run %s as subprocess in directory %s"
-                % (exe,self.workingdir)))
+            arglist = [exe]
+
+            self.logger.debug(("run arglist %s as subprocess in directory %s"
+                % (arglist,self.workingdir)))
             self.subprocess_starttime = time.time()
+            # run subprocess *not* through shell. +x is guaranteed. Also, the
+            # full path of the executable is submitted. Together, this should
+            # work secure and generic.
             self.subprocess = subprocess.Popen(
-                args=['/bin/bash', exe],
+                args=arglist,
                 stdout=self.stdouterr_file,
                 stderr=subprocess.STDOUT,
                 cwd=self.workingdir)
