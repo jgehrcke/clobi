@@ -80,7 +80,7 @@ class Clobi(IBackend):
     _schema = Schema(Version(1,0),
         {"id" : SimpleItem(defvalue="", protected=1, copyable=0,
          doc = "Clobi job ID" ),
-         "job_owner" : SimpleItem(defvalue="none", copyable=1,
+         "job_owner" : SimpleItem(defvalue="", copyable=1,
          doc = "Clobi job owner; builds hash in job ID" ),
          "priority" : SimpleItem(defvalue=1, copyable=1,
          doc = "Clobi job priority (higher: 'faster')" ),
@@ -282,25 +282,11 @@ class ClobiJobConfig(StandardJobConfig):
     I support job_owner and priority,
     currently no env, args, inputdata
     """
-    def __init__(self, exe=None, inputbox=[], outputbox=[], owner=None,
-    priority=1, args=[], env=None):
-        if owner is None:
-            logger.error("Please define a job owner via job.owner='name'")
-        if env is not None:
+    def __init__(self, exe=None, inputbox=[], outputbox=[], args=[], env=None):
+        if len(env) != 0:
             logger.error("Clobi backend currently does not support exe env")
-            env = {}
-        self.owner = str(owner)
+        env = {}
         StandardJobConfig.__init__(self,exe,inputbox,args,outputbox,env)
-
-    # def getArguments(self):
-        # return ' '.join(self.getArgStrings())
-
-    # def getExecutable(self):
-        # exe=self.getExeString()
-        # if os.path.dirname(exe) == '.':
-            # return os.path.basename(exe)
-        # else:
-            # return exe
 
 
 class ClobiRTHandler(IRuntimeHandler):
@@ -308,7 +294,8 @@ class ClobiRTHandler(IRuntimeHandler):
         return ClobiJobConfig(
             app.exe,
             app._getParent().inputsandbox,
-            app.args,app._getParent().outputsandbox,
+            app._getParent().outputsandbox,
+            app.args,
             app.env)
 
 

@@ -400,7 +400,7 @@ class ClobiJobManagementInterface(object):
 
     def generate_job_id(self, job_config):
         """
-        Generate job ID from current time, job owner name and random string
+        Generate job ID from UTC time, job owner name and random string
         -> Should be unique "enough" for now.
         """
         timestr = time.strftime("%y%m%d%H%M%S",time.gmtime())
