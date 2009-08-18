@@ -1747,8 +1747,10 @@ class EC2(object):
             try:
                 self.logger.debug(("query EC2 for state of %s ..." %instanceid))
                 inststate = instanceobj.update()
-                self.logger.info(("instance %s has state: %s"
-                    % (instanceid, inststate)))
+                # don't log this everytime, but with a probabiltiy of 0.1
+                if random.random() < 0.1:
+                    self.logger.info(("instance %s has state: %s"
+                        % (instanceid, inststate)))             
             except:
                 inststate = None
                 self.logger.error("Traceback:\n%s"%traceback.format_exc())
