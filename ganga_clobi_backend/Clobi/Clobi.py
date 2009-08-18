@@ -187,22 +187,75 @@ class Clobi(IBackend):
             status = clobijmi.get_job_status(job.backend.id)
             job.backend.status = status
             if status in ['initialized','get_input','running','save_output']:
-                job.updateStatus('running')
+                if not job.status == 'running':
+                    job.updateStatus('running')
             elif status == 'completed_success':
-                job.updateStatus('completed')
+                if not job.status == 'completed':
+                    # SDB told us that the Job Agent successfully processed the
+                    # job; including successfull output sandbox upload to the
+                    # storage service. So, make it 'completed' here too and then
+                    # try to download the output sandbox archive.
+                    job.updateStatus('completed')
+                    clobi_dl_extrct_outsandbox_arc(job)
             elif status in ['completed_error','removal_instructed',
             'removed','run_error']:
-                job.updateStatus('failed')
+                if not job.status == 'failed':
+                    job.updateStatus('failed')
             elif status == 'not_set':
                 # no status set in SimpleDB: the job is not initialized by any
                 # Job Agent until now. It is not marked to be killed. It is not
-                # marked to be removed. We're here: Ganga says it's submitted.
-                # There's no conclusion; don't change the state.
+                # marked to be removed. We're here: Ganga says it's worth
+                # monitoring, so the job is likely just submitted.
+                # --> There's no conclusion; don't change the state.
                 pass
             else:
                 logger.error("unknown status returned by Clobi JMI: %s" %status)
 
     updateMonitoringInformation = staticmethod(updateMonitoringInformation)
+
+
+def clobi_dl_extrct_outsandbox_arc(job):
+    """
+    Look for Clobi job ID in `job`. If existing, try to download output sandbox
+    archive using Clobi's JMI class. Download to output workspace. On success,
+    extract the archive.
+    """
+    try:
+        if not job.backend.id.startswith("job"):
+            raise
+    except:
+        # this catches `job.backend.id` not existing and not starting with "job"
+        logger.error("Job %s does not have a valid Clobi Job ID" % job.id)
+        return False
+    outbox_dir = os.path.abspath(job.getOutputWorkspace().getPath())
+    jmi_config = gather_clobi_jmi_config()
+    clobijmi = ClobiJobManagementInterface(
+        jmi_config,outbox_dir,logging_logger=logger)
+    outsandbox_arc_path = clobijmi.receive_output_sandbox_of_job(job.backend.id)
+    if outsandbox_arc_path:
+        # extract output sandbox archive to job output workspace
+        cmd = "tar xjf %s --verbose -C %s" % (outsandbox_arc_path, outbox_dir)
+        args = cmd.split()
+        self.logger.debug(("run outsandbox archive extraction as subprocess"
+            " with args: %s" % args))
+        try:
+            sp = subprocess.Popen(
+                args=args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            # wait for process to terminate, get stdout and stderr
+            stdout, stderr = sp.communicate()
+            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            if stderr:
+                self.logger.error("subprocess STDERR:\n%s" % stderr)
+                return False
+        except:
+            self.logger.critical("Error while extracting output sandbox")
+            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            return False
+        return True
+    else:
+        logger.error(("Download of output sandbox archive failed (Clobi Job ID:"
+            " %s" % job.backend.id))
+        return False
 
 
 def gather_clobi_jmi_config():
@@ -239,15 +292,15 @@ class ClobiJobConfig(StandardJobConfig):
         self.owner = str(owner)
         StandardJobConfig.__init__(self,exe,inputbox,args,outputbox,env)
 
-    def getArguments(self):
-        return ' '.join(self.getArgStrings())
+    # def getArguments(self):
+        # return ' '.join(self.getArgStrings())
 
-    def getExecutable(self):
-        exe=self.getExeString()
-        if os.path.dirname(exe) == '.':
-            return os.path.basename(exe)
-        else:
-            return exe
+    # def getExecutable(self):
+        # exe=self.getExeString()
+        # if os.path.dirname(exe) == '.':
+            # return os.path.basename(exe)
+        # else:
+            # return exe
 
 
 class ClobiRTHandler(IRuntimeHandler):

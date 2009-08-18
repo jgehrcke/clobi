@@ -599,10 +599,11 @@ class ClobiJobManagementInterface(object):
         self.logger.debug("SDB domain %s is now available." % domainname)
         return domainobj
 
-    def receive_output_sandbox_of_job(self):
+    def receive_output_sandbox_of_job(self, job_id):
         """
         Re-generate output sandbox archive location from JMI cfg and job ID.
         Download archive to `self.jmi_sandboxarc_dir`.
+        Return path of output sandbox archive on success; else False.
         """
         # reassemble output sandbox archive location from JMI cfg (session ID,
         # sandbox bucket) and Job ID
@@ -615,6 +616,8 @@ class ClobiJobManagementInterface(object):
         bucketname=self.sandbox_bucket,
         key=out_sandbox_arc_key):
             self.logger.info("Download of output sandbox archive successfull.")
+            return self.out_sandbox_arc_file_path
+        return False
 
     def gen_in_sandbox_arc_filename(self, job_id):
         """
