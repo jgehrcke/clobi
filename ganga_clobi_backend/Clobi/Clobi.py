@@ -80,7 +80,7 @@ class Clobi(IBackend):
     _schema = Schema(Version(1,0),
         {"id" : SimpleItem(defvalue="", protected=1, copyable=0,
          doc = "Clobi job ID" ),
-         "job_owner" : SimpleItem(defvalue="", copyable=1,
+         "job_owner" : SimpleItem(defvalue="none", copyable=1,
          doc = "Clobi job owner; builds hash in job ID" ),
          "priority" : SimpleItem(defvalue=1, copyable=1,
          doc = "Clobi job priority (higher: 'faster')" ),
@@ -149,6 +149,8 @@ class Clobi(IBackend):
             clobijmi = ClobiJobManagementInterface(
                 jmi_config,jmi_sandboxarc_dir=inbox_dir,logging_logger=logger)
             clobi_job_config = self.gather_clobi_job_config(jobconfig)
+            if clobi_job_config['owner'] == 'none':
+                logger.warning("Please set the `job.backend.owner` next time")
             clobi_job_id = clobijmi.generate_job_id(clobi_job_config)
             job.backend.id = clobi_job_id
             if clobijmi.submit_job(clobi_job_config, clobi_job_id):
@@ -236,20 +238,20 @@ def clobi_dl_extrct_outsandbox_arc(job):
         # extract output sandbox archive to job output workspace
         cmd = "tar xjf %s --verbose -C %s" % (outsandbox_arc_path, outbox_dir)
         args = cmd.split()
-        self.logger.debug(("run outsandbox archive extraction as subprocess"
+        logger.debug(("run outsandbox archive extraction as subprocess"
             " with args: %s" % args))
         try:
             sp = subprocess.Popen(
                 args=args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
             # wait for process to terminate, get stdout and stderr
             stdout, stderr = sp.communicate()
-            self.logger.debug("subprocess STDOUT:\n%s" % stdout)
+            logger.debug("subprocess STDOUT:\n%s" % stdout)
             if stderr:
-                self.logger.error("subprocess STDERR:\n%s" % stderr)
+                logger.error("subprocess STDERR:\n%s" % stderr)
                 return False
         except:
-            self.logger.critical("Error while extracting output sandbox")
-            self.logger.critical("Traceback:\n%s"%traceback.format_exc())
+            logger.critical("Error while extracting output sandbox")
+            logger.critical("Traceback:\n%s"%traceback.format_exc())
             return False
         return True
     else:
