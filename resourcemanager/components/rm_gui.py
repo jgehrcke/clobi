@@ -46,7 +46,7 @@ class ResourceManagerGUI(object):
                             on entered commands arrive (one-line-messages).
     - pipe_uiinfo_update_read:  reading os.pipe() filedescriptor. here, UI
                             update information arrives.
-    - pipe_stderr_read:     stderr is -- among others -- written to this pipe
+    - pipe_stderr_read:     stderr is written to this pipe (beside file and log)
     - queue_uicmds:         Queue.Queue() to communicate user-given commands to
                             the ResourceManagerMainLoop thread.
     """

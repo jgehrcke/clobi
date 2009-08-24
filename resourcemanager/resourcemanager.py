@@ -31,9 +31,10 @@ import os
 import Queue
 import logging
 
-from components.rm_session import ResourceManagerLogger, check_file, Tee
+from components.rm_session import ResourceManagerLogger
 from components.rm_main_loop import ResourceManagerMainLoop
 from components.rm_gui import ResourceManagerGUI
+from components.utils import *
 
 
 def main():
@@ -41,7 +42,7 @@ def main():
     - parse commandline arguments
     - get absolute session path (session.cfg directory)
     - define/create RM run dir / session directories (log, save, ..)
-    - set up logging: stderr split -> stderr/file; init logging module logger
+    - set up logging: stderr split -> stderr/file/pipe; init logging logger
     - set up thread communication components: os.pipe()s and Queue.Queue
     - start urwid GUI and Resource Manager's main loop
     """
@@ -87,7 +88,7 @@ def main():
         mainlog.debug("lockfile did not exist. create: %s" % lockfilepath)
         lock_fd = open(lockfilepath,'w')
 
-    # here the crucial part begins
+    # preparation done. now the crucial part begins.
     try:
         rm_mainloop_thread = ResourceManagerMainLoop(
             pipe_cmdresp_write,

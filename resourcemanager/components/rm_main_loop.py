@@ -101,7 +101,7 @@ class ResourceManagerMainLoop(threading.Thread):
                 if uicmd == 'quit':
                     self.ui_msg('end RM main loop')
                     break
-                    # continue statement .. really quit? enter again..
+                    # future: continue statement .. really quit? enter again..
                 elif uicmd == 'help':
                     self.display_help_message()
                 elif uicmd == 'pause':
@@ -145,17 +145,17 @@ class ResourceManagerMainLoop(threading.Thread):
             # error events are logged, but not when subprocesses didn't return)
             self.check_nimbus_cloud_client_wrappers()
 
-            # check EC2 instances that were requested to start recently
+            # check EC2 instances that were requested to start recently.
             # do it based on self.session.inicfg.ec2.instance_state_pollinterval
             self.check_runinstances_request_states_if_necessary()
 
-            # this basically builds the `started_vms_string` and displays it
+            # build the `started_vms_string` and displays it in the UI
             self.display_started_vms()
 
     def write_jmi_cfg_file(self):
         """
         Instruct the Session class to write a config file that contains all
-        information the JMI needs.
+        information the JobManagementInterface needs.
         """
         self.ui_msg(("Instructed to write Clobi's Job Management Interface"
             " configuration file..."))

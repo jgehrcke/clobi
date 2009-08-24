@@ -90,7 +90,6 @@ class Clobi(IBackend):
     _name =  "Clobi"
 
     def __init__(self):
-        pass
         super(Clobi, self).__init__()
 
     def gather_clobi_job_config(self, ganga_jobconfig):
